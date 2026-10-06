@@ -521,3 +521,66 @@ def test_signoff_bound_to_policy(tmp_path):
     legacy.write_text(yaml.safe_dump(data))
     v = verdict(reqs, signoff.results(tmp_path, reqs, policy=pol2))["HUM-FIT-001"]
     assert v["status"] == NOT_RUN and "no policy binding" in v["reason"]
+
+
+# ------------------------------------------------------------------ isolation barriers
+from kicadverify.checks import isolation  # noqa: E402
+
+ISO_PCB = """(kicad_pcb (general (thickness 1.6))
+ (layers (0 "F.Cu" signal) (2 "B.Cu" signal) (25 "Edge.Cuts" user))
+ (segment (start 10 10) (end 30 10) (width 1.0) (layer "F.Cu") (net "/L"))
+ (segment (start 10 13) (end 30 13) (width 0.5) (layer "F.Cu") (net "GND"))
+ (segment (start 10 20) (end 30 20) (width 1.0) (layer "B.Cu") (net "/N"))
+ (footprint "C:C" (layer "F.Cu") (at 40 10) (property "Reference" "J1")
+  (pad "1" thru_hole circle (at 0 0) (size 2 2) (drill 1) (layers "*.Cu") (net "/L"))
+  (pad "2" thru_hole circle (at 0 6) (size 2 2) (drill 1) (layers "*.Cu") (net "+5V")))
+ (gr_rect (start 0 0) (end 50 30) (layer "Edge.Cuts")))"""
+
+
+@pytest.fixture
+def iso_board(tmp_path):
+    (tmp_path / "b.kicad_pcb").write_text(ISO_PCB)
+    (tmp_path / "b.kicad_pro").write_text(json.dumps({"net_settings": {"netclass_patterns": [
+        {"netclass": "MAINS", "pattern": "/L"}, {"netclass": "MAINS", "pattern": "N"}]}}))
+    return board.load(tmp_path / "b.kicad_pcb"), tmp_path / "b.kicad_pro"
+
+
+def _iso(b, pro, barriers):
+    return isolation.run(b, pro, "t", {"isolation": {"barriers": barriers}})[0]
+
+
+def test_isolation_netclass_selection(iso_board):
+    b, pro = iso_board
+    ex, pat = isolation.netclasses(pro)
+    assert isolation.netclass_of("/N", ex, pat) == "MAINS" and isolation.netclass_of("GND", ex, pat) == "Default"
+    # /L track edge at 10.5, GND track edge at 12.75: 2.25 mm on F.Cu; J1 pads 6 - 2 = 4 mm apart
+    r = _iso(b, pro, [{"name": "mains-LV", "a": {"netclass": "MAINS"}, "required_mm": 3.0}])
+    assert r.status == FAIL and "2.25 mm" in r.violations[0]["text"] and "F.Cu" in r.violations[0]["text"]
+    r = _iso(b, pro, [{"name": "mains-LV", "a": {"netclass": "MAINS"}, "required_mm": 2.0}])
+    assert r.status == PASS and r.coverage["checked"] == 2  # F.Cu and B.Cu
+    r = _iso(b, pro, [{"name": "L-N", "a": {"nets": ["/L"]}, "b": {"nets": ["~/?N"]}, "required_mm": 5}])
+    assert r.status == PASS  # /L and /N only meet on B.Cu through J1.1: 20 - 10 - 1 - 0.5 = 8.5 mm
+
+
+def test_isolation_cutout_turns_shortfall_into_gap(iso_board, tmp_path):
+    b, pro = iso_board
+    slot = ISO_PCB.replace('(gr_rect (start 0 0) (end 50 30) (layer "Edge.Cuts"))',
+                           '(gr_rect (start 0 0) (end 50 30) (layer "Edge.Cuts")) '
+                           '(gr_rect (start 12 11.2) (end 28 11.8) (layer "Edge.Cuts"))')
+    (tmp_path / "s.kicad_pcb").write_text(slot)
+    bs = board.load(tmp_path / "s.kicad_pcb")
+    assert isolation.has_cutouts(bs) and not isolation.has_cutouts(b)
+    r = _iso(bs, pro, [{"name": "mains-LV", "a": {"netclass": "MAINS"}, "required_mm": 3.0}])
+    assert r.status == PASS and r.coverage["unchecked"] and "cutouts" in r.coverage["unchecked"][0]["text"]
+    assert verdict([req("ISO-SEP-001")], [r])["ISO-SEP-001"]["status"] == NOT_VERIFIABLE
+
+
+def test_isolation_declared_or_not_verifiable(iso_board):
+    b, pro = iso_board
+    assert isolation.run(b, pro, "t", {})[0].outcome == NOT_VERIFIABLE
+    r = _iso(b, pro, [{"name": "x", "a": {"nets": ["NOPE"]}, "required_mm": 1}])
+    assert "selects no net" in r.coverage["unchecked"][0]["text"]
+    reqs = [req("ISO-SEP-001")]
+    isolation.apply_sources(reqs, {"isolation": {"barriers": [
+        {"name": "m", "required_mm": 4, "source": {"kind": "regulatory", "ref": "IEC 62368-1 T.x", "confirmed": False}}]}})
+    assert reqs[0]["source"]["confirmed"] is False and "IEC 62368-1" in reqs[0]["source"]["ref"]

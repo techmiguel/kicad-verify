@@ -25,6 +25,7 @@ A requirement is VERIFIED only when every verifier behind it ran, found nothing 
 | PCB-PINS-001 | fast, full | .kicad_pcb, verification/pcb/pins.yaml | Pins listed in pins.yaml compared with the PCB nets | Pins not listed; transcription errors in pins.yaml |
 | PCB-HOLE-001 | fast, full | .kicad_pcb, params.mounting_holes | Mounting-hole position and drill vs the expected values | Whether the expected values match the enclosure (the board interface lets a mechanical tool check that) |
 | PCB-KEEPOUT-001 | fast, full | .kicad_pcb | Tracks, vias and pads of other nets inside the washer radius | Copper zones; screw heads larger than the configured radius |
+| ISO-SEP-001 | fast, full | .kicad_pcb, .kicad_pro (net classes), params.isolation.barriers | Smallest copper-to-copper distance between the two sides of each declared barrier, per copper layer (tracks, vias, pads, zone fills). A straight-line distance at or above the requirement implies the PCB creepage and clearance meet it | Component bodies and leads above the board, relay/transformer internals, distance through the insulation between layers, creepage around slots (a shortfall on a board with cutouts is an unchecked item, not a FAIL), pollution degree and material group (they are in the required value the project declares). kicad-verify ships no normative distances |
 
 ## Circuit checks (schematic netlist)
 

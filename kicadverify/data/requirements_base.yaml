@@ -117,6 +117,9 @@ requirements:
   - id: FAB-DFM-001
     text: "Measured board geometry (tracks, vias, holes, annular rings, edge distance, size, layers, thickness) within the target fab's capabilities"
     source: {kind: fab_capability, ref: "Target fab capability profile (params.fab.profile)"}
+  - id: ISO-SEP-001
+    text: "Copper on each side of every declared isolation barrier (mains to low voltage, between mains conductors...) is at least the required distance apart on every layer"
+    source: {kind: regulatory, ref: "Each barrier in params.isolation.barriers cites the standard and table its distance comes from"}
   - id: FAB-GERBER-001
     text: "Gerber set has every mandatory layer"
     source: {kind: fab_capability, ref: "Fab order requirements: copper, mask and outline layers (Gerber X2)"}

@@ -108,6 +108,36 @@ of the capability page and should be checked against the fab's current page. Con
 overriding it in the project with the source you checked:
 `profile: {base: jlcpcb-1-2-layer-standard, source: {confirmed: true, by: "...", date: "..."}}`.
 
+## Isolation barriers
+
+A DRC is only as good as the clearance rules someone wrote into the board, and boards that carry
+mains often have none. ISO-SEP-001 checks the barriers the project declares, independently of
+those rules:
+
+```yaml
+params:
+  isolation:
+    barriers:
+      - name: mains to SELV
+        a: {netclass: MAINS}               # or nets: ["/L", "~/?N"]
+        b: {not: a}                        # default: every other net and unconnected copper
+        required_mm: 6.4                   # outer layers
+        required_inner_mm: 2.0             # optional
+        source: {kind: regulatory, ref: "<standard, table, insulation class, voltage, PD, material group>"}
+```
+
+For every barrier and copper layer it measures the smallest copper-to-copper distance between the
+two sides (tracks, vias, pads, zone fills). On one surface any path along the board is at least as
+long as the straight line, so a measured distance at or above the requirement means the PCB copper
+meets it both along the surface and through air. A shortfall on a board with cutouts or non-plated
+slots is reported as an unchecked item (NOT_VERIFIABLE), because the creepage around a slot is not
+computed; on a board without them it is FAILED. Component bodies and leads, relay and transformer
+internals and the distance through the insulation between layers are out of scope.
+
+kicad-verify ships no normative distances: the required value and its source come from the project
+(a barrier without a source leaves the requirement's source unconfirmed). A board with no hazardous
+voltage excludes ISO-SEP-001 with that reason.
+
 ## Release record
 
 `kicadverify release` runs the fab gate, the reviewer (or reuses the review on record for the same

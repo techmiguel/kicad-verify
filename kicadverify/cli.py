@@ -9,7 +9,7 @@ from pathlib import Path
 from . import (attest, config, interface, manifest, netlist, outputs, provenance, report, requirements, review,
                signoff, waivers)
 from .checks import assertions, board as board_mod
-from .checks import circuit, dfm, fab, happy, kicad_cli, parity
+from .checks import circuit, dfm, fab, happy, isolation, kicad_cli, parity
 from .report import FAIL, PASS, SKIP, WARN, Result
 
 EXIT_OK, EXIT_BLOCKED, EXIT_CONFIG, EXIT_NO_PROJECT = 0, 1, 2, 3
@@ -22,6 +22,7 @@ def _filter_disabled(results, disabled):
 
 def _lint(proj):
     dfm.apply_profile_source(proj["requirements"], proj["params"])
+    isolation.apply_sources(proj["requirements"], proj["params"])
     return requirements.lint(proj["requirements"], proj["excluded"], assertions.TYPES)
 
 
@@ -60,6 +61,7 @@ def checks(root, proj, mode):
                 results += board_mod.run(b, label, proj, k["pcb"])
                 results += parity.run(b, nl, label)
                 results += dfm.run(b, k["pro"], label, params, k["pcb"])
+                results += isolation.run(b, k["pro"], label, params, k["pcb"])
                 results += fab.run(root, k["pcb"], b, label, params, mode)
             except Exception as e:
                 results.append(Result("PCB-PARSE", FAIL, f"{label}: could not parse or check the PCB: {e}"))
@@ -118,6 +120,7 @@ def finish(root, proj, mode, raw_results, dh=None, review_note=None, prov=None, 
     results = waivers.apply(_filter_disabled(copy.deepcopy(raw_results), proj["disabled"]), proj["waivers"])
     reqs = proj["requirements"]
     dfm.apply_profile_source(reqs, proj["params"])
+    isolation.apply_sources(reqs, proj["params"])
     ver = requirements.verification(reqs, proj["excluded"], results, root, mode, proj["params"], _lint(proj))
     if review_note:
         for v in ver["requirements"]:
