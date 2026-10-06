@@ -15,7 +15,7 @@ from pathlib import Path
 
 from .. import config
 from ..config import walk
-from ..report import FAIL, PASS, SKIP, WARN, Result
+from ..report import FAIL, PASS, WARN, Result, coverage, not_verifiable
 from ..waivers import vkey
 
 GERBER_EXT = (".gbr", ".gtl", ".gbl", ".gts", ".gbs", ".gto", ".gbo", ".gtp", ".gbp", ".gm1",
@@ -81,7 +81,9 @@ def _gerber_sets(files):
 def gerbers(pcb, board, files, label):
     res = []
     if not files:
-        return [Result("FAB-GERBER-001", SKIP, f"{label}: no Gerber files in the project (not exported yet)")]
+        return [not_verifiable("FAB-GERBER-001", f"{label}: no Gerber files in the project (not exported yet)",
+                               "export the Gerbers (or set params.fab.dir)"),
+                not_verifiable("FAB-STALE-001", f"{label}: no Gerber files to compare with the PCB")]
     have = _gerber_sets(files)
     funcs = set(have)
     ncu = len(board["copper_layers"]) or 2
@@ -90,27 +92,34 @@ def gerbers(pcb, board, files, label):
     res.append(Result("FAB-GERBER-001", FAIL if missing else PASS,
                       f"{label}: {len(missing)} mandatory Gerber layers missing",
                       violations=[{"key": vkey("gerb", n), "text": n} for n in missing],
-                      evidence=[str(files[0].parent)]))
+                      evidence=list(files), coverage=coverage("mandatory layers", len(need))))
     # freshness: re-plot with kicad-cli and compare functional geometry per layer
     try:
-        with tempfile.TemporaryDirectory() as td:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as td:
             subprocess.run([config.KICAD_CLI, "pcb", "export", "gerbers", "--board-plot-params",
                             "-o", td, str(pcb)], capture_output=True, text=True, timeout=300)
             fresh = _gerber_sets([p for p in Path(td).iterdir() if p.suffix != ".gbrjob"])
     except Exception as e:
-        res.append(Result("FAB-STALE-001", WARN, f"{label}: could not re-plot Gerbers: {e}"))
+        res.append(not_verifiable("FAB-STALE-001", f"{label}: could not re-plot Gerbers: {e}"))
         return res
-    diffs = []
+    if not fresh:
+        res.append(not_verifiable("FAB-STALE-001", f"{label}: kicad-cli produced no Gerbers to compare with"))
+        return res
+    diffs, gap = [], []
     for func, coords in fresh.items():
         if func in have:
             extra, lost = len(coords - have[func]), len(have[func] - coords)
             if extra or lost:
                 diffs.append(f"{func}: {extra} items new on the PCB, {lost} items no longer on the PCB")
+        elif coords:  # an empty layer (e.g. bottom paste with no bottom SMD) needs no export
+            gap.append({"key": vkey("stalegap", func), "text": f"{func}: plotted from the PCB, not in the exported set"})
+    for func in [f for f in set(have) - set(fresh) if have[f]]:
+        gap.append({"key": vkey("stalegap", func), "text": f"{func}: exported, not produced by the board plot settings"})
     res.append(Result("FAB-STALE-001", FAIL if diffs else PASS,
                       f"{label}: {len(diffs)} Gerber layers do not match the current PCB"
                       + (" (re-export them)" if diffs else ""),
                       violations=[{"key": vkey("stale", d.split(':')[0]), "text": d} for d in diffs],
-                      evidence=[str(files[0].parent)]))
+                      evidence=list(files), coverage=coverage("Gerber layers", len({f for f in set(have) | set(fresh) if have.get(f) or fresh.get(f)}), gap)))
     return res
 
 
@@ -140,7 +149,7 @@ def _drill_holes(files):
 
 def drills(board, files, label):
     if not files:
-        return [Result("FAB-DRILL-001", SKIP, f"{label}: no drill files")]
+        return [not_verifiable("FAB-DRILL-001", f"{label}: no drill files", "export the drill files")]
     want = []
     for fp in board["footprints"]:
         for p in fp["pads"]:
@@ -153,7 +162,7 @@ def drills(board, files, label):
     hw, hg = Counter(d for d, _, _ in want), Counter(d for d, _, _ in got)
     diffs = [f"Ø{d} mm: {hw.get(d, 0)} on the PCB vs {hg.get(d, 0)} in the .drl files"
              for d in sorted(set(hw) | set(hg)) if hw.get(d, 0) != hg.get(d, 0)]
-    note = ""
+    note, gap = "", []
     if decimal and got and want:
         # absolute or auxiliary origin, Y flipped or not: keep the convention that fits best
         gset = {(d, round(x, 2), round(y, 2)) for d, x, y in got}
@@ -168,10 +177,13 @@ def drills(board, files, label):
         diffs += [f"hole Ø{d} mm at ({x:.2f}, {y:.2f}) on the PCB has no match in the .drl files" for d, x, y in best]
     else:
         note = " (positions not compared: non-decimal format)"
+        gap = [{"key": vkey("drillgap", "positions"), "text": f"{len(want)} hole positions not compared "
+                                                               "(Excellon without decimal point)"}]
     return [Result("FAB-DRILL-001", FAIL if diffs else PASS,
                    f"{label}: {len(diffs)} PCB/.drl drill mismatches (slots not compared){note}",
                    violations=[{"key": vkey("drill", d.split(' on the PCB')[0].split(':')[0]), "text": d} for d in diffs],
-                   evidence=[str(f) for f in files])]
+                   evidence=[str(f) for f in files], coverage=coverage("drilled holes", len(want) + (1 if gap else 0),
+                                                                        gap))]
 
 
 # ---------------------------------------------------------------- BOM / CPL
@@ -197,7 +209,7 @@ def _assembled(board):
 
 def bom(board, files, label):
     if not files:
-        return [Result("FAB-BOM-001", SKIP, f"{label}: no BOM")]
+        return [not_verifiable("FAB-BOM-001", f"{label}: no BOM", "export the BOM (or set params.fab.bom)")]
     f = files[0]
     rows = _rows(f)
     want = _assembled(board)
@@ -222,7 +234,7 @@ def bom(board, files, label):
     vs = [{"key": vkey("bom", d), "text": d} for d in diffs + warns]
     st = FAIL if diffs else (WARN if warns else PASS)
     return [Result("FAB-BOM-001", st, f"{label}: {len(diffs)} BOM/PCB mismatches, {len(warns)} warnings",
-                   violations=vs, evidence=[str(f)])]
+                   violations=vs, evidence=[str(f)], coverage=coverage("assembled parts", len(want)))]
 
 
 def _num(s):
@@ -232,7 +244,7 @@ def _num(s):
 
 def cpl(board, files, label, tol):
     if not files:
-        return [Result("FAB-CPL-001", SKIP, f"{label}: no CPL")]
+        return [not_verifiable("FAB-CPL-001", f"{label}: no CPL", "export the placement file (or set params.fab.cpl)")]
     f = files[0]
     rows = _rows(f)
     want = _assembled(board)
@@ -287,7 +299,7 @@ def cpl(board, files, label, tol):
                    f"{label}: {len(diffs)} CPL/PCB mismatches (rotations NOT verified)",
                    violations=[{"key": vkey("cpl", d.split(':')[0], d.split(':')[1][:12]), "text": d}
                                for d in diffs],
-                   evidence=[str(f)])]
+                   evidence=[str(f)], coverage=coverage("assembled parts", len(want)))]
 
 
 def run(root, pcb, board, label, params, mode):
@@ -297,6 +309,7 @@ def run(root, pcb, board, label, params, mode):
     if mode == "full":
         res += gerbers(pcb, board, g, label)
     res += drills(board, dr, label)
-    res += bom(board, b, label)
-    res += cpl(board, c, label, tol)
+    if (params.get("fab") or {}).get("assembly", True):
+        res += bom(board, b, label)
+        res += cpl(board, c, label, tol)
     return res

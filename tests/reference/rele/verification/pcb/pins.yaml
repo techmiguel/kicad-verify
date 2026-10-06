@@ -1,0 +1,4 @@
+# From the datasheets in docs/datasheets (not from the schematic).
+U1: {1: GND, 2: "+3V3", 3: "+5V"}              # AMS1117 SOT-223: 1 GND/ADJ, 2 VOUT (tab), 3 VIN
+U2: {1: "/RST", 3: "/EN", 8: "+3V3", 15: GND}  # ESP-12F: 1 RST, 3 EN, 8 VCC, 15 GND
+K1: {A1: "/COIL_N", A2: "+5V"}                  # G5RL-1A-E coil

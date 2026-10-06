@@ -6,7 +6,7 @@ from pathlib import Path
 
 from .. import sexp
 from ..config import DATA
-from ..report import FAIL, PASS, SKIP, WARN, Result
+from ..report import FAIL, NOT_VERIFIABLE, PASS, WARN, Result, coverage, not_verifiable
 from ..waivers import vkey
 
 POWER_RE = re.compile(r"(^|/)(\+|V)(\d|CC|DD|BUS|IN|BAT|SYS)|GND|VBAT|VMOT|VSYS", re.I)
@@ -48,6 +48,8 @@ def load(pcb):
             d = _drill(p)
             pads.append({
                 "number": p[1] if len(p) > 1 else "", "type": p[2] if len(p) > 2 else "",
+                "shape": p[3] if len(p) > 3 and isinstance(p[3], str) else "",
+                "angle": sexp.num(pat[3]) if len(pat) > 3 else rot,
                 "net": _net(p),
                 "x": fx + px * math.cos(a) + py * math.sin(a),
                 "y": fy - px * math.sin(a) + py * math.cos(a),
@@ -56,7 +58,15 @@ def load(pcb):
                 "layers": [l for l in (sexp.child(p, "layers") or [])[1:]],
             })
         attr = [x for x in (sexp.child(fp, "attr") or [])[1:]]
+        edges_fp = []
+        for kind in ("fp_line", "fp_arc", "fp_rect", "fp_circle", "fp_poly"):
+            for g in sexp.children(fp, kind):
+                if (sexp.child(g, "layer") or ["", ""])[1] == "Edge.Cuts":
+                    edges_fp += [((fx + x * math.cos(a) + y * math.sin(a), fy - x * math.sin(a) + y * math.cos(a)),
+                                  (fx + u * math.cos(a) + v * math.sin(a), fy - u * math.sin(a) + v * math.cos(a)))
+                                 for (x, y), (u, v) in _outline_segments(kind, g)]
         fps.append({
+            "edges": edges_fp,
             "name": fp[1] if len(fp) > 1 else "", "ref": sexp.prop(fp, "Reference") or "?",
             "value": sexp.prop(fp, "Value") or "", "layer": (sexp.child(fp, "layer") or ["", "F.Cu"])[1],
             "x": fx, "y": fy, "rot": rot, "attr": attr, "dnp": "dnp" in attr,
@@ -78,22 +88,26 @@ def load(pcb):
     zones = [{"net": (sexp.child(z, "net_name") or [None, None])[1] or _net(z),
               "layers": [l for l in (sexp.child(z, "layers") or sexp.child(z, "layer") or [])[1:]]}
              for z in sexp.children(tree, "zone")]
-    edge = []
+    edge_segments = [s for fp in fps for s in fp["edges"]]
     for kind in ("gr_line", "gr_arc", "gr_rect", "gr_circle", "gr_poly"):
         for g in sexp.children(tree, kind):
             if (sexp.child(g, "layer") or ["", ""])[1] == "Edge.Cuts":
-                for pt in ("start", "end", "mid", "center"):
-                    xy = _xy(g, pt)
-                    if xy:
-                        edge.append(xy)
-                pts = sexp.child(g, "pts")
-                if pts:
-                    edge += [(sexp.num(p[1]), sexp.num(p[2])) for p in sexp.children(pts, "xy")]
+                edge_segments += _outline_segments(kind.replace("gr_", "fp_"), g)
+    edge = [p for s in edge_segments for p in s]
+    zone_fills = []
+    for z in sexp.children(tree, "zone"):
+        zn = (sexp.child(z, "net_name") or [None, None])[1] or _net(z)
+        for fpoly in sexp.children(z, "filled_polygon"):
+            pts = sexp.child(fpoly, "pts")
+            if pts:
+                zone_fills.append({"net": zn, "layer": (sexp.child(fpoly, "layer") or ["", ""])[1],
+                                   "pts": [(sexp.num(q[1]), sexp.num(q[2])) for q in sexp.children(pts, "xy")]})
     setup = sexp.child(tree, "setup") or []
     layers = sexp.child(tree, "layers") or []
     general = sexp.child(tree, "general") or []
     th = sexp.child(general, "thickness")
     return {"footprints": fps, "tracks": tracks, "vias": vias, "zones": zones,
+            "edge_segments": edge_segments, "zone_fills": zone_fills,
             "aux_origin": _xy(setup, "aux_axis_origin") or (0.0, 0.0),
             "grid_origin": _xy(setup, "grid_origin") or (0.0, 0.0),
             "copper_layers": [l[1] for l in layers[1:] if isinstance(l, list) and len(l) > 2
@@ -101,6 +115,49 @@ def load(pcb):
             "thickness": sexp.num(th[1], 1.6) if th else 1.6,
             "outline_bbox": ([min(p[0] for p in edge), min(p[1] for p in edge),
                               max(p[0] for p in edge), max(p[1] for p in edge)] if edge else None)}
+
+
+def _circle_pts(cx, cy, r, a0=0.0, sweep=2 * math.pi, n=16):
+    return [(cx + r * math.cos(a0 + sweep * i / n), cy + r * math.sin(a0 + sweep * i / n)) for i in range(n + 1)]
+
+
+def _arc_pts(s, m, e, n=16):
+    """Polyline through an arc given by start, mid and end points."""
+    ax, ay = s
+    bx, by = m
+    cx, cy = e
+    d = 2 * (ax * (by - cy) + bx * (cy - ay) + cx * (ay - by))
+    if abs(d) < 1e-12:
+        return [s, e]
+    ux = ((ax * ax + ay * ay) * (by - cy) + (bx * bx + by * by) * (cy - ay) + (cx * cx + cy * cy) * (ay - by)) / d
+    uy = ((ax * ax + ay * ay) * (cx - bx) + (bx * bx + by * by) * (ax - cx) + (cx * cx + cy * cy) * (bx - ax)) / d
+    r = math.hypot(ax - ux, ay - uy)
+    a0, am, a1 = (math.atan2(p[1] - uy, p[0] - ux) for p in (s, m, e))
+
+    def ccw(a, b):
+        return (b - a) % (2 * math.pi)
+    sweep = ccw(a0, a1) if ccw(a0, am) <= ccw(a0, a1) else -ccw(a1, a0)
+    return _circle_pts(ux, uy, r, a0, sweep, n)
+
+
+def _outline_segments(kind, g):
+    """Line segments of one Edge.Cuts item (local coordinates for fp_* items inside footprints)."""
+    st, en, mid, ce = _xy(g, "start"), _xy(g, "end"), _xy(g, "mid"), _xy(g, "center")
+    pts = []
+    if kind == "fp_line" and st and en:
+        pts = [st, en]
+    elif kind == "fp_arc" and st and en and mid:
+        pts = _arc_pts(st, mid, en)
+    elif kind == "fp_rect" and st and en:
+        pts = [st, (en[0], st[1]), en, (st[0], en[1]), st]
+    elif kind == "fp_circle" and ce and en:
+        pts = _circle_pts(ce[0], ce[1], math.hypot(en[0] - ce[0], en[1] - ce[1]), n=32)
+    elif kind == "fp_poly":
+        pp = sexp.child(g, "pts")
+        pts = [(sexp.num(p[1]), sexp.num(p[2])) for p in sexp.children(pp, "xy")] if pp else []
+        if pts:
+            pts.append(pts[0])
+    return [(pts[i], pts[i + 1]) for i in range(len(pts) - 1)]
 
 
 def mounting_holes(board, params):
@@ -137,7 +194,7 @@ def _norm(n):
     return (n or "").lstrip("/").upper()
 
 
-def run(board, label, proj):
+def run(board, label, proj, pcb=None):
     root, params, pins = proj["root"], proj["params"], proj["pins"]
     res = []
 
@@ -147,11 +204,14 @@ def run(board, label, proj):
         res.append(Result("PCB-FOOT-001", WARN,
                           f"{label}: no approved-footprint list; {len(used)} footprints awaiting approval "
                           "(add them to verification/pcb/approved_footprints.txt once checked against the datasheet)",
-                          violations=[{"key": vkey("foot", n), "text": n} for n in used]))
+                          violations=[{"key": vkey("foot", n), "text": n} for n in used], outcome=NOT_VERIFIABLE,
+                          coverage=coverage("footprints", len(used),
+                                            [{"key": vkey("foot", n), "text": f"{n}: not approved yet"} for n in used])))
     else:
         bad = [n for n in used if n not in approved]
         res.append(Result("PCB-FOOT-001", FAIL if bad else PASS, f"{label}: {len(bad)} footprints not approved",
-                          violations=[{"key": vkey("foot", n), "text": n} for n in bad]))
+                          violations=[{"key": vkey("foot", n), "text": n} for n in bad],
+                          coverage=coverage("footprints", len(used))))
 
     nomodel = [fp for fp in board["footprints"] if not fp["models"] and "board_only" not in fp["attr"]
                and not fp["name"].split(":")[-1].startswith(NO_MODEL_OK)]
@@ -159,27 +219,34 @@ def run(board, label, proj):
                       f"{label}: {len(nomodel)} footprints without a 3D model (missing from the board STEP, "
                       "so enclosure fit cannot be checked for them)",
                       violations=[{"key": vkey("model", fp["ref"]), "text": f"{fp['ref']} ({fp['name']})"}
-                                  for fp in nomodel]))
+                                  for fp in nomodel],
+                      coverage=coverage("footprints", len(board["footprints"]))))
 
-    nonet = [(fp["ref"], p["number"]) for fp in board["footprints"] for p in fp["pads"]
-             if p["type"] in ("smd", "thru_hole") and not p["net"] and p["number"]]
+    electrical = [(fp["ref"], p) for fp in board["footprints"] for p in fp["pads"]
+                  if p["type"] in ("smd", "thru_hole") and p["number"]]
+    nonet = [(r, p["number"]) for r, p in electrical if not p["net"]]
     res.append(Result("PCB-PADNET-001", WARN if nonet else PASS,
                       f"{label}: {len(nonet)} pads without a net (fine only if the pin is NC)",
-                      violations=[{"key": vkey("padnet", r, n), "text": f"{r}.{n}"} for r, n in nonet]))
+                      violations=[{"key": vkey("padnet", r, n), "text": f"{r}.{n}"} for r, n in nonet],
+                      coverage=coverage("electrical pads", len(electrical))))
 
     minw = float(params.get("min_power_width_mm", 0.25))
     extra = [re.compile(x, re.I) for x in params.get("power_net_patterns") or []]
-    thin = {}
+    thin, power = {}, set()
     for t in board["tracks"]:
         n = t["net"] or ""
-        if (POWER_RE.search(n) or any(r.search(n) for r in extra)) and t["width"] < minw - 1e-6:
-            thin[n] = min(t["width"], thin.get(n, 99))
+        if POWER_RE.search(n) or any(r.search(n) for r in extra):
+            power.add(n)
+            if t["width"] < minw - 1e-6:
+                thin[n] = min(t["width"], thin.get(n, 99))
     res.append(Result("PCB-WIDTH-001", FAIL if thin else PASS,
                       f"{label}: {len(thin)} power nets with tracks narrower than {minw} mm",
-                      violations=[{"key": vkey("width", n), "text": f"{n}: {w} mm"} for n, w in thin.items()]))
+                      violations=[{"key": vkey("width", n), "text": f"{n}: {w} mm"} for n, w in thin.items()],
+                      coverage=coverage("routed power nets", len(power))))
 
     if not pins:
-        res.append(Result("PCB-PINS-001", SKIP, f"{label}: no verification/pcb/pins.yaml"))
+        res.append(not_verifiable("PCB-PINS-001", f"{label}: no critical pins listed in verification/pcb/pins.yaml",
+                                  "copy the critical pins of each IC/connector from its datasheet into pins.yaml"))
     else:
         byref = {fp["ref"]: fp for fp in board["footprints"]}
         bad = []
@@ -198,12 +265,16 @@ def run(board, label, proj):
                 ok = got is not None and re.fullmatch(pat, _norm(got) if not exp.startswith("~") else got, re.I)
                 if not ok:
                     bad.append((f"{ref}.{pin}: expected {expected}, found {got}", f"{ref}.{pin}"))
+        npins = sum(len(t or {}) for t in pins.values())
         res.append(Result("PCB-PINS-001", FAIL if bad else PASS, f"{label}: {len(bad)} pins differ from pins.yaml",
-                          violations=[{"key": vkey("pins", k), "text": t} for t, k in bad]))
+                          violations=[{"key": vkey("pins", k), "text": t} for t, k in bad],
+                          coverage=coverage("pins listed in pins.yaml", npins),
+                          evidence=[proj["dir"] / "pins.yaml"]))
 
     mh = params.get("mounting_holes")
     if not mh:
-        res.append(Result("PCB-HOLE-001", SKIP, f"{label}: no mounting_holes in requirements.yaml"))
+        res.append(not_verifiable("PCB-HOLE-001", f"{label}: no expected mounting holes (params.mounting_holes)",
+                                  "set params.mounting_holes from the enclosure drawing"))
     else:
         tol = float(mh.get("tol_mm", 0.1))
         holes = [p for fp in board["footprints"] for p in fp["pads"] if p["drill"]]
@@ -215,12 +286,15 @@ def run(board, label, proj):
             elif mh.get("drill_mm") and abs((near["drill"] or 0) - mh["drill_mm"]) > tol:
                 bad.append(f"{ex}: drill {near['drill']} mm, expected {mh['drill_mm']} mm")
         res.append(Result("PCB-HOLE-001", FAIL if bad else PASS, f"{label}: {len(bad)} mounting holes out of tolerance",
-                          violations=[{"key": vkey("hole", b), "text": b} for b in bad]))
+                          violations=[{"key": vkey("hole", b), "text": b} for b in bad],
+                          coverage=coverage("expected mounting holes", len(mh.get("expected", [])))))
 
     mhs = mounting_holes(board, params)
     extra_r = float(params.get("hole_keepout_extra_mm", 1.4))
     if not mhs:
-        res.append(Result("PCB-KEEPOUT-001", SKIP, f"{label}: no mounting holes found"))
+        res.append(not_verifiable("PCB-KEEPOUT-001", f"{label}: no mounting holes identified",
+                                  "use MountingHole* footprints or list them in params.mounting_refs; "
+                                  "exclude the requirement with a reason if the board has none"))
     else:
         bad = []
         for h in mhs:
@@ -245,7 +319,8 @@ def run(board, label, proj):
         bad = list(dict.fromkeys(bad))
         res.append(Result("PCB-KEEPOUT-001", FAIL if bad else PASS,
                           f"{label}: {len(bad)} items inside the mounting-hole keep-out (washer/screw head)",
-                          violations=[{"key": vkey("keepout", b), "text": b} for b in bad]))
+                          violations=[{"key": vkey("keepout", b), "text": b} for b in bad],
+                          coverage=coverage("mounting holes", len(mhs))))
     for r in res:
-        r.evidence = r.evidence or [label]
+        r.evidence = [pcb or label] + list(r.evidence)
     return res

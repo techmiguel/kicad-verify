@@ -1,5 +1,9 @@
 {
   "fixture": "smartRele@6053b84d",
+  "baseline_fab_gate": true,
+  "baseline_failed": [
+    "PCB-MODEL-001"
+  ],
   "rows": [
     {
       "mutation": "pcb_pin_swap_U1",
@@ -10,8 +14,16 @@
       "deterministic_checks": [
         "PCB-CONN-001",
         "PCB-DRC-001",
-        "PCB-PARITY-001"
-      ]
+        "PCB-PARITY-001",
+        "PCB-PINS-001"
+      ],
+      "requirements_failed": [
+        "PCB-CONN-001",
+        "PCB-DRC-001",
+        "PCB-PARITY-001",
+        "PCB-PINS-001"
+      ],
+      "fab_gate_blocked": true
     },
     {
       "mutation": "footprint_swapped",
@@ -23,7 +35,13 @@
         "FAB-BOM-001",
         "PCB-FOOT-001",
         "PCB-PARITY-001"
-      ]
+      ],
+      "requirements_failed": [
+        "FAB-BOM-001",
+        "PCB-FOOT-001",
+        "PCB-PARITY-001"
+      ],
+      "fab_gate_blocked": true
     },
     {
       "mutation": "track_in_MH1_keepout",
@@ -36,7 +54,14 @@
         "PCB-CONN-001",
         "PCB-DRC-001",
         "PCB-KEEPOUT-001"
-      ]
+      ],
+      "requirements_failed": [
+        "FAB-STALE-001",
+        "PCB-CONN-001",
+        "PCB-DRC-001",
+        "PCB-KEEPOUT-001"
+      ],
+      "fab_gate_blocked": true
     },
     {
       "mutation": "gerbers_stale",
@@ -48,7 +73,13 @@
         "FAB-STALE-001",
         "PCB-CONN-001",
         "PCB-DRC-001"
-      ]
+      ],
+      "requirements_failed": [
+        "FAB-STALE-001",
+        "PCB-CONN-001",
+        "PCB-DRC-001"
+      ],
+      "fab_gate_blocked": true
     },
     {
       "mutation": "drill_J1_1.3mm",
@@ -58,7 +89,11 @@
       "deterministic": true,
       "deterministic_checks": [
         "FAB-DRILL-001"
-      ]
+      ],
+      "requirements_failed": [
+        "FAB-DRILL-001"
+      ],
+      "fab_gate_blocked": true
     },
     {
       "mutation": "MH1_moved_1mm",
@@ -68,8 +103,15 @@
       "deterministic": true,
       "deterministic_checks": [
         "FAB-DRILL-001",
+        "PCB-HOLE-001",
         "PCB-KEEPOUT-001"
-      ]
+      ],
+      "requirements_failed": [
+        "FAB-DRILL-001",
+        "PCB-HOLE-001",
+        "PCB-KEEPOUT-001"
+      ],
+      "fab_gate_blocked": true
     },
     {
       "mutation": "cpl_body_centre_U2",
@@ -79,7 +121,11 @@
       "deterministic": true,
       "deterministic_checks": [
         "FAB-CPL-001"
-      ]
+      ],
+      "requirements_failed": [
+        "FAB-CPL-001"
+      ],
+      "fab_gate_blocked": true
     },
     {
       "mutation": "cpl_missing_K1",
@@ -89,7 +135,11 @@
       "deterministic": true,
       "deterministic_checks": [
         "FAB-CPL-001"
-      ]
+      ],
+      "requirements_failed": [
+        "FAB-CPL-001"
+      ],
+      "fab_gate_blocked": true
     },
     {
       "mutation": "bom_missing_C9",
@@ -99,7 +149,11 @@
       "deterministic": true,
       "deterministic_checks": [
         "FAB-BOM-001"
-      ]
+      ],
+      "requirements_failed": [
+        "FAB-BOM-001"
+      ],
+      "fab_gate_blocked": true
     },
     {
       "mutation": "led_D2_reversed",
@@ -123,7 +177,14 @@
         "FAIL",
         "MOD-PINOUT-001"
       ],
-      "reviewer_sonnet_cost": 0.18881199999999998
+      "reviewer_sonnet_cost": 0.18881199999999998,
+      "requirements_failed": [
+        "CIR-POL-001",
+        "PCB-CONN-001",
+        "PCB-DRC-001",
+        "PCB-PARITY-001"
+      ],
+      "fab_gate_blocked": true
     },
     {
       "mutation": "flyback_D1_reversed",
@@ -145,7 +206,13 @@
         "FAIL",
         "REV-EXTRA"
       ],
-      "reviewer_sonnet_cost": 0.1414956
+      "reviewer_sonnet_cost": 0.1414956,
+      "requirements_failed": [
+        "CIR-POL-001",
+        "PCB-CONN-001",
+        "PCB-DRC-001"
+      ],
+      "fab_gate_blocked": true
     },
     {
       "mutation": "regulator_U1_1V8",
@@ -165,7 +232,11 @@
         "FAIL",
         "MOD-POWER-001"
       ],
-      "reviewer_sonnet_cost": 0.1530112
+      "reviewer_sonnet_cost": 0.1530112,
+      "requirements_failed": [
+        "CIR-REG-001"
+      ],
+      "fab_gate_blocked": true
     },
     {
       "mutation": "led_resistor_R9_10R",
@@ -185,7 +256,11 @@
         "FAIL",
         "MOD-VALUE-001"
       ],
-      "reviewer_sonnet_cost": 0.26383080000000003
+      "reviewer_sonnet_cost": 0.26383080000000003,
+      "requirements_failed": [
+        "CIR-LED-001"
+      ],
+      "fab_gate_blocked": true
     },
     {
       "mutation": "base_resistor_R6_10R",
@@ -205,7 +280,11 @@
         "FAIL",
         "MOD-VALUE-001"
       ],
-      "reviewer_sonnet_cost": 0.24265440000000005
+      "reviewer_sonnet_cost": 0.24265440000000005,
+      "requirements_failed": [
+        "CIR-BJT-001"
+      ],
+      "fab_gate_blocked": true
     },
     {
       "mutation": "cap_C1_rated_4V",
@@ -225,7 +304,11 @@
         "FAIL",
         "MOD-POWER-001"
       ],
-      "reviewer_sonnet_cost": 0.2115184
+      "reviewer_sonnet_cost": 0.2115184,
+      "requirements_failed": [
+        "KH-*"
+      ],
+      "fab_gate_blocked": true
     },
     {
       "mutation": "en_pullup_R1_10M",
@@ -243,7 +326,9 @@
         "FAIL",
         "MOD-STRAP-001"
       ],
-      "reviewer_sonnet_cost": 0.23732840000000002
+      "reviewer_sonnet_cost": 0.23732840000000002,
+      "requirements_failed": [],
+      "fab_gate_blocked": false
     },
     {
       "mutation": "fuse_F1_50A",
@@ -261,7 +346,9 @@
         "FAIL",
         "MOD-PROT-001"
       ],
-      "reviewer_sonnet_cost": 0.27991520000000003
+      "reviewer_sonnet_cost": 0.27991520000000003,
+      "requirements_failed": [],
+      "fab_gate_blocked": false
     },
     {
       "mutation": "pinmap_pad_renumbered",
@@ -270,8 +357,46 @@
       "applied": true,
       "deterministic": true,
       "deterministic_checks": [
-        "PCB-PINMAP-001"
-      ]
+        "PCB-PINMAP-001",
+        "PCB-PINS-001"
+      ],
+      "requirements_failed": [
+        "PCB-PINMAP-001",
+        "PCB-PINS-001"
+      ],
+      "fab_gate_blocked": true
+    },
+    {
+      "mutation": "rules_clearance_relaxed",
+      "group": "fab",
+      "expected": "FAB-RULES-001",
+      "applied": true,
+      "deterministic": true,
+      "deterministic_checks": [
+        "FAB-RULES-001"
+      ],
+      "requirements_failed": [
+        "FAB-RULES-001"
+      ],
+      "fab_gate_blocked": true
+    },
+    {
+      "mutation": "track_0.1mm",
+      "group": "fab",
+      "expected": "FAB-DFM-001",
+      "applied": true,
+      "deterministic": true,
+      "deterministic_checks": [
+        "FAB-DFM-001",
+        "KH-CC-002",
+        "KH-DFM-001",
+        "PCB-DRC-001"
+      ],
+      "requirements_failed": [
+        "FAB-DFM-001",
+        "PCB-DRC-001"
+      ],
+      "fab_gate_blocked": true
     }
   ]
 }

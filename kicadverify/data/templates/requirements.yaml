@@ -1,10 +1,26 @@
-# Project requirements. Inherits kicad-verify's base requirements (see `kicadverify requirements`).
-params: {}
+# Project requirements. Inherits kicad-verify's base requirements (`kicadverify requirements`).
+# Every requirement needs a source (where it comes from) and a way to verify it:
+#   method: auto  + check: {...}   deterministic assertion (pin_net, value, footprint, field,
+#                                  net_exists, board_size, layer_count, track_width)
+#   method: model                  independent reviewer, evidence re-checked by code
+#   method: human                  sign-off bound to the design hash (`kicadverify signoff`)
+# gate: dev | fab | release | none   first gate at which it must be VERIFIED
+params:
+  fab:
+    profile: null      # target fab capabilities, e.g. jlcpcb-1-2-layer-standard (`kicadverify profiles`)
   # min_power_width_mm: 0.4
   # net_voltages: {"/VIN": 12}
   # mounting_holes: {drill_mm: 3.2, tol_mm: 0.1, expected: [[10, 10], [90, 10]]}
   # interface: {step_user_origin: "100x149mm"}
 requirements: []
-  # - {id: PRJ-001, method: model, text: "Relay contacts rated for 10 A at 250 VAC"}
+  # - id: PRJ-PWR-001
+  #   text: "The MCU is supplied from +3V3"
+  #   source: {kind: datasheet, ref: "MCU datasheet, pin 1 VDD", file: datasheets/mcu.pdf}
+  #   check: {type: pin_net, ref: U1, pin: 1, net: "+3V3"}
+  # - id: PRJ-RELAY-001
+  #   method: model
+  #   text: "Relay contacts rated for 10 A at 250 VAC"
+  #   source: {kind: customer, ref: "Product spec v2, section 3"}
+  # - {id: PCB-MODEL-001, gate: none}      # override a base requirement
 disable: []
-  # - PCB-PINS-001
+  # - {id: PCB-HOLE-001, reason: "No enclosure: the board is mounted on standoffs chosen later", by: "Name", date: "2026-10-06"}

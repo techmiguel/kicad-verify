@@ -1,0 +1,9 @@
+waivers:
+  - {check: PCB-ERC-001, key: a7b03bd82c, reason: "Off-grid wire end; ERC reports no unconnected pin on that net", date: "2026-10-06", by: reference}
+  - {check: PCB-ERC-001, key: 61b00a369c, reason: "F1 pin 1 off grid; connectivity confirmed by parity", date: "2026-10-06", by: reference}
+  - {check: PCB-ERC-001, key: 75bc563517, reason: "Symbols kept as embedded copies on purpose (library drift reviewed)", date: "2026-10-06", by: reference}
+  - {check: PCB-ERC-001, key: 4e25f62d7f, reason: "Symbols kept as embedded copies on purpose (library drift reviewed)", date: "2026-10-06", by: reference}
+  - {check: PCB-ERC-001, key: b3a6e9e2a7, reason: "Q_NPN_BEC renamed in KiCad 10 libraries; embedded copy is the reviewed one", date: "2026-10-06", by: reference}
+  - {check: PCB-ERC-001, key: 72be5cc37a, reason: "Symbols kept as embedded copies on purpose (library drift reviewed)", date: "2026-10-06", by: reference}
+  - {check: PCB-ERC-001, key: ad953769b6, reason: "Symbols kept as embedded copies on purpose (library drift reviewed)", date: "2026-10-06", by: reference}
+  - {check: PCB-ERC-001, key: 0936ce83d3, reason: "Symbols kept as embedded copies on purpose (library drift reviewed)", date: "2026-10-06", by: reference}

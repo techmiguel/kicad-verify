@@ -1,3 +1,4 @@
-# One entry per finding (the key is printed next to it), with reason, date and optional expiry.
+# One entry per accepted finding or coverage gap (the key is printed next to it), with the reason,
+# the date, who accepted it and an optional expiry. Waived items stay in every report as deviations.
 waivers: []
-  # - {check: PCB-DRC-001, key: ab12cd34ef, reason: "Antenna keep-out by design", date: "2026-10-06", expires: "2027-01-01"}
+  # - {check: PCB-DRC-001, key: ab12cd34ef, reason: "Antenna keep-out by design", date: "2026-10-06", by: "Name", expires: "2027-01-01"}

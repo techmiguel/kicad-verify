@@ -1,0 +1,51 @@
+# Hardware verification CI, written by `kicadverify init --ci github`.
+# Every push runs the deterministic requirements and publishes the traceability report (job
+# summary), a JUnit file and the raw evidence. The `fab` gate fails the job unless every
+# requirement that must hold before fabrication is VERIFIED (or explicitly waived/excluded).
+#
+# kicad-cli runs in the official KiCad image through a small wrapper; kicad-verify itself runs on
+# the runner's Python. HOME=/home/kicad inside the image keeps its global library tables (without
+# them ERC/DRC report every symbol and footprint as missing from its library).
+name: hw-verify
+on:
+  push:
+  pull_request:
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    env:
+      KICAD_IMAGE: kicad/kicad:10.0
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: kicad-cli wrapper
+        run: |
+          docker pull --quiet "$KICAD_IMAGE"
+          mkdir -p "$RUNNER_TEMP/bin"
+          cat > "$RUNNER_TEMP/bin/kicad-cli" <<'SH'
+          #!/bin/sh
+          exec docker run --rm -i -u 0:0 -e HOME=/home/kicad -v "$GITHUB_WORKSPACE:$GITHUB_WORKSPACE" \
+            -v /tmp:/tmp -w "$PWD" "$KICAD_IMAGE" kicad-cli "$@"
+          SH
+          chmod +x "$RUNNER_TEMP/bin/kicad-cli"
+          echo "KICAD_CLI=$RUNNER_TEMP/bin/kicad-cli" >> "$GITHUB_ENV"
+      - name: Install kicad-verify
+        run: |
+          pip install --quiet git+https://github.com/techmiguel/kicad-verify
+          kicadverify setup
+      - name: Verify (fab gate)
+        run: >-
+          kicadverify verify {{path}} --gate fab
+          --junit hw-verify-junit.xml --markdown "$GITHUB_STEP_SUMMARY"
+      - name: Upload reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: hw-verify-reports
+          path: |
+            hw-verify-junit.xml
+            {{path}}/verification/pcb/reports/verify_report.json
+            {{path}}/verification/pcb/reports/verification_report.md
+            {{path}}/verification/pcb/reports/evidence/

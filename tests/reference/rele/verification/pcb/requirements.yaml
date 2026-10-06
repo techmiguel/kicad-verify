@@ -1,0 +1,22 @@
+# Reference configuration for the smartRele fixture (tests/fixtures.py): what a fully configured
+# project looks like. The fab gate passes on the unmodified board; every seeded defect blocks it.
+params:
+  fab:
+    profile: jlcpcb-1-2-layer-standard
+    dir: fabrication
+  mounting_holes: {drill_mm: 2.2, tol_mm: 0.1, expected: [[151.2, 140.6], [163.9, 146.4]]}
+  net_voltages: {"/L_IN": 156, "/L_F": 156, "/N": 0}
+requirements:
+  - id: PRJ-PWR-001
+    text: "The ESP-12F module is supplied from +3V3 on its VCC pin"
+    source: {kind: datasheet, ref: "ESP-12F pin definitions, pin 8 VCC", file: docs/datasheets/0a-esp8266ex_datasheet_en.pdf}
+    check: {type: pin_net, ref: U2, pin: 8, net: "+3V3"}
+  - id: PRJ-MAINS-001
+    text: "Switched load output (L_OUT, load current only) uses tracks of at least 2.5 mm, sized for 10 A"
+    rationale: "L_IN also feeds the fuse/PSU branch at 1.0 mm, which carries only the PSU current; that branch is not in scope"
+    source: {kind: design_intent, ref: "README: 'Duplicated power path on both sides (2 x 2.5 mm, 35 um), sized for 10 A' (IPC-2221)", file: README.md}
+    check: {type: track_width, net: "/L_OUT", min: 2.5}
+  - id: PRJ-LAYERS-001
+    text: "Two-layer board (cost target)"
+    source: {kind: customer, ref: "Cost target: 2-layer JLCPCB standard"}
+    check: {type: layer_count, equals: 2}

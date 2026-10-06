@@ -97,17 +97,27 @@ def artifact_hash(root, include_outputs=True):
     return h.hexdigest()
 
 
+DESIGN_SUFFIXES = (".kicad_pcb", ".kicad_sch", ".kicad_pro", ".kicad_dru")
+
+
+def design_files(root):
+    """KiCad files that define the design. .kicad_pro and .kicad_dru hold the design rules and net
+    classes the DRC is judged against, so they are part of the design."""
+    return [f for f in sorted(walk(root)) if f.suffix.lower() in DESIGN_SUFFIXES]
+
+
 def design_hash(root):
-    """Content hash of the KiCad design files only (not outputs, not verification config)."""
-    h = hashlib.sha1()
-    for f in sorted(walk(root)):
-        if f.suffix.lower() in (".kicad_pcb", ".kicad_sch"):
-            h.update(str(f.relative_to(root)).replace("\\", "/").encode())
-            h.update(f.read_bytes())
+    """SHA-256 over the relative path and content of every design file (not outputs, not config)."""
+    h = hashlib.sha256()
+    for f in design_files(root):
+        h.update(str(f.relative_to(root)).replace("\\", "/").encode())
+        h.update(b"\0")
+        h.update(f.read_bytes())
     return h.hexdigest()
 
 
 def load_project(root):
+    from . import requirements as rq
     root = Path(root)
     vd = root / DIRNAME
     proj = load_yaml(vd / "project.yaml", {}) or {}
@@ -117,13 +127,26 @@ def load_project(root):
     base = load_yaml(DATA / "requirements_base.yaml", {}) or {}
     own = load_yaml(vd / "requirements.yaml", {}) or {}
     params = _merge(base.get("params", {}), own.get("params") or {})
-    reqs = {r["id"]: r for r in base.get("requirements", [])}
+    raw = {r["id"]: (dict(r), "base") for r in base.get("requirements", [])}
     for r in own.get("requirements") or []:
-        reqs[r["id"]] = {**reqs.get(r["id"], {}), **r}
-    for rid in own.get("disable") or []:
-        reqs.pop(rid, None)
+        prev = raw.get(r["id"])
+        raw[r["id"]] = ({**prev[0], **r}, "base+project") if prev else (dict(r), "project")
+    reqs = {rid: rq.normalize(r, origin) for rid, (r, origin) in raw.items()}
+    excluded = []
+    for d in own.get("disable") or []:
+        e = {"id": d, "reason": None} if isinstance(d, str) else {"id": d.get("id"), "reason": d.get("reason"),
+                                                                    "by": d.get("by"), "date": d.get("date")}
+        excluded.append(e)
+        reqs.pop(e["id"], None)
+    if (params.get("fab") or {}).get("assembly", True) is False:
+        for rid in ("FAB-BOM-001", "FAB-CPL-001", "HUM-CPL-001"):
+            if reqs.pop(rid, None):
+                excluded.append({"id": rid, "reason": "params.fab.assembly is false (bare boards, no assembly)"})
+    for e in excluded:
+        e["text"] = next((r.get("text") for r in base.get("requirements", []) if r["id"] == e["id"]), None)
     return {"root": root, "dir": vd, "project": proj, "params": params,
-            "requirements": list(reqs.values()), "disabled": set(own.get("disable") or []),
+            "requirements": list(reqs.values()), "excluded": excluded,
+            "disabled": {e["id"] for e in excluded},
             "waivers": (load_yaml(vd / "waivers.yaml", {}) or {}).get("waivers", []),
             "pins": load_yaml(vd / "pins.yaml", {}) or {}}
 
@@ -135,7 +158,7 @@ def _merge(a, b):
     return out
 
 
-def init_project(root):
+def init_project(root, ci=None):
     root = Path(root)
     vd = root / DIRNAME
     vd.mkdir(parents=True, exist_ok=True)
@@ -145,6 +168,15 @@ def init_project(root):
         if not dst.exists():
             shutil.copy(t, dst)
             created.append(dst)
-    pj = vd / "project.yaml"
-    pj.write_text(pj.read_text(encoding="utf-8").replace("{{name}}", root.name), encoding="utf-8")
+            if dst.name == "project.yaml":
+                dst.write_text(dst.read_text(encoding="utf-8").replace("{{name}}", root.name), encoding="utf-8")
+    if ci == "github":
+        repo = next((d for d in [root, *root.parents] if (d / ".git").exists()), root)
+        wf = repo / ".github" / "workflows" / "hw-verify.yml"
+        if not wf.exists():
+            wf.parent.mkdir(parents=True, exist_ok=True)
+            rel = os.path.relpath(root, repo).replace("\\", "/")
+            wf.write_text((DATA / "ci" / "github-workflow.yml").read_text(encoding="utf-8").replace("{{path}}", rel),
+                          encoding="utf-8")
+            created.append(wf)
     return created
