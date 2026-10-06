@@ -56,7 +56,7 @@ requirements:
     text: "Every schematic connection is routed"
     source: {kind: tool, ref: "KiCad DRC unconnected items"}
   - id: PCB-PARITY-001
-    text: "Schematic and PCB have the same parts, footprints and net per pin"
+    text: "Schematic and PCB have the same parts, values, footprints and net per pin"
     gate: dev
     source: {kind: best_practice, ref: "Board built from the reviewed schematic (KiCad 'Update PCB from Schematic' parity)"}
   - id: PCB-PINMAP-001

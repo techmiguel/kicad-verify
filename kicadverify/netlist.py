@@ -2,6 +2,7 @@
 types included), cached per schematic content."""
 import hashlib
 import json
+import math
 import re
 import subprocess
 import tempfile
@@ -105,6 +106,22 @@ def parse_value(text, unit=""):
     num, pre, frac = m.groups()
     v = float(num + ("." + frac if frac else ""))
     return v * _SI.get(pre, 1) if pre else v
+
+
+def same_value(a, b):
+    """Same component value written two ways: '4k7' == '4.7k' == '4700', '100n' == '100nF', '220' == '220Ω',
+    '100nF/50V' == '100n 50V'. The first word is compared as a number when both sides parse; the rest ('10V',
+    'X7R') as text, ignoring case and spacing. Values that are not numbers (part names) are compared as text."""
+    wa, wb = re.split(r"[\s/]+", (a or "").strip()), re.split(r"[\s/]+", (b or "").strip())
+    wa, wb = [w for w in wa if w], [w for w in wb if w]
+    if not wa or not wb:
+        return wa == wb
+    va, vb = parse_value(wa[0]), parse_value(wb[0])
+    if va is not None and vb is not None:
+        first = math.isclose(va, vb, rel_tol=1e-9, abs_tol=1e-15)
+    else:
+        first = wa[0].casefold() == wb[0].casefold()
+    return first and "".join(wa[1:]).casefold() == "".join(wb[1:]).casefold()
 
 
 def rated_voltage(comp):

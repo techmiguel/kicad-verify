@@ -3,7 +3,7 @@
 Own implementation because `kicad-cli pcb drc --schematic-parity` hangs (>10 min, growing memory)
 with KiCad 10.0.5 on at least one real project, while the netlist export takes ~1 s.
 """
-from ..netlist import norm_net
+from ..netlist import norm_net, same_value
 from ..report import FAIL, PASS, WARN, Result, coverage, not_verifiable
 from ..waivers import vkey
 
@@ -29,6 +29,8 @@ def run(board, nl, label):
         fp = pcb[ref]
         if c["footprint"] and c["footprint"] != fp["name"]:
             diffs.append(f"{ref}: footprint {fp['name']} on PCB vs {c['footprint']} in schematic")
+        if not same_value(c["value"], fp["value"]):
+            diffs.append(f"{ref}: value {fp['value'] or '(empty)'} on PCB vs {c['value'] or '(empty)'} in schematic")
         padnet = {}
         for p in fp["pads"]:
             padnet.setdefault(p["number"], p["net"])

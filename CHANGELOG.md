@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+- PCB-PARITY-001 compares component values between schematic and PCB. A value changed in only one of them (the board would be built with a value the circuit checks never saw) is FAILED and blocks every gate; each difference can be waived with a reason. Values are compared as numbers when both parse (`4k7` = `4.7k` = `4700`, `100n` = `100nF`, `220` = `220Ω`), the rest of the value (`10V`, `X7R`) as text ignoring case and spacing. Found by testing on smartRele: R9 changed to 330 Ω in the schematic alone passed the fab gate with only a kicad-happy warning.
+- The requirement text of PCB-PARITY-001 now names values, so the policy digest changes: sign-offs made under 0.3.0 must be renewed.
+- Seeded defect `value_R9_schematic_only` added to the bank (21 defects).
+
 ## 0.3.0 — 2026-10-06
 Provenance: the system can show exactly what it verified, what it could not verify, under which policy and tool versions, over which artifacts and against which design intent.
 - `provenance` block in every report: policy digest with one digest per component (requirements, params, gates, waivers, exclusions, fab profile, verifier registry, reviewer prompt, pins) and the hashed policy files; tools (kicad-verify version, code digest and git commit, kicad-cli, kicad-happy pinned tag and installed commit, Python, platform, CI variables); every artifact (design, fabrication, datasheets, config) with SHA-256; the design intent (declared and empty fields, context files). Markdown report gains a Provenance table.

@@ -31,8 +31,8 @@ checks:
     layer: kicad
     modes: [fast, full]
     inputs: [.kicad_sch, .kicad_pcb]
-    covers: Same references, footprints and net per pin in schematic and PCB
-    limits: Errors present in both. PCB-only parts (MountingHole, Fiducial, TestPoint, board_only) are ignored
+    covers: Same references, values, footprints and net per pin in schematic and PCB (values compared as numbers when both parse, so 4k7 = 4.7k = 4700 and 100n = 100nF)
+    limits: Errors present in both. Fields other than the value (MPN, voltage or tolerance fields). PCB-only parts (MountingHole, Fiducial, TestPoint, board_only) are ignored
   PCB-PINMAP-001:
     title: Symbol pin to footprint pad mapping
     layer: kicad
