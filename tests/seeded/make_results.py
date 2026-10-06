@@ -22,6 +22,10 @@ def main():
              "severe than on the baseline.", ""]
     det = sum(1 for r in rows if r.get("deterministic"))
     blocked = sum(1 for r in rows if r.get("fab_gate_blocked"))
+    lines += ["**Scope of this evidence.** One board, 20 injected defects, one reviewer run per defect and "
+              "model. It is a regression suite: it shows that each listed defect class is caught on this board "
+              "and keeps it caught. It is not a benchmark of detection rates on other designs, and it does not "
+              "measure the false-positive rate (see \"Not measured here\").", ""]
     lines += [f"**Deterministic checks: {det}/{len(rows)}** defects caught. "
               f"**Fab gate: {blocked}/{len(rows)}** defects block it "
               "(the two that do not are judgement calls with no rule: they are the reviewer's job, at the release gate).",
@@ -71,9 +75,17 @@ def main():
                   "- False positives on the unmodified board: Opus 5.5 gave none. Sonnet 5.5 failed the 07D221K "
                   "varistor as if the mains were 230 VAC. After design intent (README, `design_intent.md`) was "
                   "added to the bundle, two more Sonnet runs gave no FAIL.",
-                  "- A PASS without a quote that kicad-verify finds in the cited file becomes FAIL. This strictness "
-                  "also produced one FAIL on an unrelated requirement, where the model claimed PASS without "
-                  "citing evidence.", ""]
+                  "- These reviews were recorded with kicad-verify 0.1, where a PASS without a quote found in the "
+                  "cited file became FAIL (since 0.2 it is NOT_VERIFIABLE). That strictness produced one FAIL on an "
+                  "unrelated requirement, where the model claimed PASS without citing evidence.",
+                  "- Independence of the evidence (0.4 rule: quotes from `verify_report.json`, `kicad_happy.json` "
+                  "and other verifiers' conclusions do not count). Re-checking the recorded reviews: none of the "
+                  "105 requirement verdicts with valid evidence rested only on derived sources; 3 extra error "
+                  "findings did (Opus on flyback_D1_reversed and led_D2_reversed, Sonnet on led_D2_reversed), all "
+                  "repeating DRC/parity findings the gate already reports. Under 0.4 they are reported as "
+                  "unverified; no catch in the table depends on them.",
+                  "- A valid quote proves evidence integrity (the text exists in an independent source), not that "
+                  "the text supports the conclusion. The release gate keeps human sign-offs for that reason.", ""]
     lines += ["## Not measured here", "",
               "- Real defects from other boards, multi-sheet schematics and four-layer boards.",
               "- Rotation errors in the CPL (left to the fab house viewer and a human sign-off).",

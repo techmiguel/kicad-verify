@@ -2,7 +2,8 @@
 
 Every verification report carries a `provenance` block, so a verdict can always be traced to:
 - policy:    a digest of the effective verification policy (normalised requirements, parameters,
-             gate policy, waivers, exclusions, fab profile, verifier registry, reviewer prompt),
+             gate policy, waivers, exclusions, fab profile, verifier registry, reviewer prompt, pins,
+             and the verification inputs of project.yaml such as the reviewer model),
              with one digest per component and the SHA-256 of every policy source file;
 - tools:     kicad-verify (version, digest of its own code and data, git commit when run from a
              checkout), kicad-cli, the kicad-happy engine (pinned tag and installed commit),
@@ -69,6 +70,8 @@ def policy(proj):
         "verifier_registry": rq.registry(),
         "reviewer_prompt": (config.DATA / "reviewer_prompt.md").read_text(encoding="utf-8"),
         "pins": proj["pins"],
+        # project.yaml minus the release state that `release` writes after verifying
+        "project": config.project_inputs(proj["project"]),
     }
     files = _files([config.DATA / "requirements_base.yaml", config.DATA / "checks.yaml",
                     config.DATA / "fab_profiles.yaml", config.DATA / "reviewer_prompt.md"]
@@ -174,7 +177,8 @@ def artifacts(root, proj):
         "design": config.design_files(root),
         "fabrication": sorted(set(g) | set(d) | set(b) | set(c)),
         "datasheets": sorted(set(ds)),
-        # project.yaml is left out: `release` writes the status into it after verifying
+        # project.yaml is not hashed as a file: `release` writes its release state after verifying.
+        # Its verification inputs are in the policy digest (`config.project_inputs`).
         "config": [proj["dir"] / n for n in ("requirements.yaml", "waivers.yaml", "signoff.yaml",
                                               "pins.yaml", "approved_footprints.txt", INTENT_FILE)],
     }

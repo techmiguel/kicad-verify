@@ -60,7 +60,7 @@ A requirement is VERIFIED only when every verifier behind it ran, found nothing 
 
 | Verifier | Modes | Inputs | Covers | Does not cover |
 |---|---|---|---|---|
-| REVIEW | review | review bundle, datasheets | Judgement requirements where a rule cannot decide; every quote is searched verbatim in the cited file | Only what is in the bundle and project files (no web); non-deterministic; can share blind spots with the tools that generated the design |
+| REVIEW | review | review bundle, datasheets | Judgement requirements where a rule cannot decide; every quote is searched verbatim in the cited file, which must be an independent source (design files, datasheets, design intent), never another verifier's report | Evidence integrity, not semantic proof (a valid quote does not prove the conclusion drawn from it); only what is in the bundle and project files (no web); non-deterministic; can share blind spots with the tools that generated the design |
 
 ## Human sign-off
 

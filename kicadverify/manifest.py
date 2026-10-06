@@ -3,10 +3,15 @@
 `kicadverify release` writes verification/pcb/release/manifest.json (plus an archived copy per
 design) with the SHA-256 of every design file, every fabrication output, the verification config,
 the review report and the verification report, and the verdict of every requirement.
-`kicadverify audit` recomputes the hashes: any difference means the files about to be sent to the
-fab are not the ones that were verified.
+
+The reports in `verification/pcb/reports/` are rewritten by every later `verify`, so the manifest
+binds the copies archived with it (`release/<date>-<design>/`), which nothing else writes.
+`kicadverify audit` recomputes every hash: design, fabrication and config files on disk, and the
+archived reports and attestation. Any difference means the files about to be sent to the fab, or
+the record of their verification, are not the ones that were released.
 """
 import json
+import shutil
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -63,16 +68,25 @@ def build(root, proj, rep, review_report=None, attestation=None):
 
 
 def write(root, proj, man):
+    """Writes the manifest and archives a copy of every report it binds; the manifest then points
+    at the archived copies (`archived`), which is what `audit` checks."""
+    root = Path(root)
     d = proj["dir"] / "release"
     d.mkdir(parents=True, exist_ok=True)
-    text = json.dumps(man, indent=2, ensure_ascii=False)
-    (d / "manifest.json").write_text(text, encoding="utf-8")
     arch = d / f"{man['time'][:10]}-{man['design_hash'][:12]}"
     arch.mkdir(exist_ok=True)
-    (arch / "manifest.json").write_text(text, encoding="utf-8")
+    for name, r in man.get("reports", {}).items():
+        src = root / r["path"]
+        if src.is_file() and src.parent.resolve() != arch.resolve():
+            dst = arch / src.name
+            shutil.copyfile(src, dst)
+            r["archived"] = evidence.rel(dst, root)
     md = proj["dir"] / "reports" / "verification_report.md"
     if md.exists():
-        (arch / "verification_report.md").write_text(md.read_text(encoding="utf-8"), encoding="utf-8")
+        shutil.copyfile(md, arch / "verification_report.md")
+    text = json.dumps(man, indent=2, ensure_ascii=False)
+    (d / "manifest.json").write_text(text, encoding="utf-8")
+    (arch / "manifest.json").write_text(text, encoding="utf-8")
     return d / "manifest.json"
 
 
@@ -96,4 +110,13 @@ def audit(root, proj, path=None):
         for p in set(cur) - set(files):
             if group in ("design", "fabrication"):
                 diffs.append((group, p, "not in the manifest"))
+    for name, r in man.get("reports", {}).items():
+        p = r.get("archived") or r["path"]
+        h = evidence.sha256(Path(root) / p)
+        if h is None:
+            diffs.append(("reports", p, f"{name} missing"))
+        elif h != r["sha256"]:
+            diffs.append(("reports", p, f"{name} changed" + ("" if r.get("archived") else
+                          " (manifest from before 0.4: it binds reports/, which every verify rewrites; "
+                          "run `release` again to archive the reports)")))
     return diffs, man

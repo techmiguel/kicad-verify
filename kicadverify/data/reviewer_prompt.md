@@ -9,9 +9,12 @@ Bundle files:
 - `verify_report.json` - deterministic checks already run (ERC, DRC, parity, circuit, fabrication,
   kicad-happy). Do not repeat them; use them as context and challenge them when they look wrong.
 - `design.json` - components (value, footprint, symbol, supplier/MPN fields, datasheet URL), the
-  pin table of every multi-pin part (pin number, pin name, electrical type, net), nets with their
-  nodes, and rail voltages estimated from names and regulators.
+  pin table of every multi-pin part (pin number, pin name, electrical type, net) and nets with
+  their nodes, exported from the schematic.
+- `estimates.json` - rail voltages estimated from net names and regulators (an inference, not data).
 - `kicad_happy.json` - circuit analysis summary (may be absent).
+- `sources.json` - which bundle files are independent sources and which are conclusions of other
+  verifiers (see the evidence rules).
 - `context/` - design intent written by the designer (operating voltage, loads, environment,
   decisions). Judge the board against this intent, not against assumptions: if the intent says
   110 VAC, do not fail a part for being unsuitable at 230 VAC. If the intent is missing or does not
@@ -34,6 +37,11 @@ Evidence rules (enforced by code after you answer; anything that fails them is d
 - Every evidence item has `file` (path relative to the project root, or a bundle file name),
   `locator` (pin, ref, page, JSON key...) and `quote`. For datasheets cite the .txt file in
   `datasheets_text/` and give the page in `locator`.
+- Cite only independent sources: the .kicad_sch / .kicad_pcb files, the datasheets (their text
+  copies), the design intent and context files, or `design.json`. `verify_report.json`,
+  `kicad_happy.json`, `estimates.json`, `requirements.json`, `datasheets.json` and anything under
+  `verification/pcb/reports/` are conclusions of other tools: read them to orient yourself, but a
+  quote from them is discarded. Your verdict must stand on what you checked in the sources.
 - `quote` must be copied VERBATIM from that file (at least 8 characters, at most 200). For PDFs,
   copy text exactly as it appears on the page. Do not paraphrase inside `quote`.
 - A PASS without at least one valid evidence item is not accepted (the requirement stays

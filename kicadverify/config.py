@@ -35,6 +35,12 @@ SKIP_DIRS = {".history", "verification", "backups", ".git", "node_modules", ".ve
              "__pycache__", "hwverify"}
 KICAD_SUFFIXES = {".kicad_pro", ".kicad_pcb", ".kicad_sch"}
 OUTPUT_SUFFIXES = {".csv", ".drl", ".gbr", ".gbrjob"}
+DESIGN_SUFFIXES = (".kicad_pcb", ".kicad_sch", ".kicad_pro", ".kicad_dru")
+# project.yaml keys that are not verification inputs: the release state written by `release` itself,
+# and the display name (defaults to the folder name; renaming a folder must not void sign-offs).
+# Every other key (reviewer_model, ...) is a verification input and part of the policy digest.
+PROJECT_STATE_KEYS = ("status", "release_design_hash")
+PROJECT_LABEL_KEYS = ("name",)
 
 
 def load_yaml(path, default=None):
@@ -78,26 +84,27 @@ def discover(root):
     return sorted(out, key=lambda k: str(k["pro"]))
 
 
-def artifact_hash(root, include_outputs=True):
-    h = hashlib.sha1()
-    suffixes = KICAD_SUFFIXES | (OUTPUT_SUFFIXES if include_outputs else set())
-    for f in sorted(walk(root)):
-        s = f.suffix.lower()
-        if s in suffixes or (s.startswith(".g") and len(s) == 4):
-            try:
-                st = f.stat()
-                h.update(f"{f}|{st.st_size}|{int(st.st_mtime)}".encode())
-            except OSError:
-                pass
-    vd = Path(root) / DIRNAME
-    for name in ("requirements.yaml", "waivers.yaml", "pins.yaml", "approved_footprints.txt"):
-        f = vd / name
-        if f.exists():
-            h.update(f.read_bytes())
+def change_key(root, include_outputs=True):
+    """Change-detection key for the Claude Code hooks: SHA-256 over the content of the KiCad files,
+    the fabrication outputs and the verification config. It only decides whether the checks must
+    run again; the identity of what was verified is `design_hash` plus the provenance digests."""
+    from . import evidence
+    root = Path(root)
+    h = hashlib.sha256()
+    suffixes = KICAD_SUFFIXES | set(DESIGN_SUFFIXES) | (OUTPUT_SUFFIXES if include_outputs else set())
+    files = [f for f in sorted(walk(root))
+             if f.suffix.lower() in suffixes or (include_outputs and f.suffix.lower().startswith(".g")
+                                                 and len(f.suffix) == 4)]
+    vd = root / DIRNAME
+    files += [vd / n for n in ("project.yaml", "requirements.yaml", "waivers.yaml", "signoff.yaml", "pins.yaml",
+                               "approved_footprints.txt", "design_intent.md")]
+    for f in files:
+        d = evidence.sha256(f)
+        if d:
+            h.update(evidence.rel(f, root).encode())
+            h.update(b"\0")
+            h.update(d.encode())
     return h.hexdigest()
-
-
-DESIGN_SUFFIXES = (".kicad_pcb", ".kicad_sch", ".kicad_pro", ".kicad_dru")
 
 
 def design_files(root):
@@ -114,6 +121,11 @@ def design_hash(root):
         h.update(b"\0")
         h.update(f.read_bytes())
     return h.hexdigest()
+
+
+def project_inputs(project):
+    """The verification-input part of project.yaml (everything but the release state and the name)."""
+    return {k: v for k, v in project.items() if k not in PROJECT_STATE_KEYS + PROJECT_LABEL_KEYS}
 
 
 def load_project(root):

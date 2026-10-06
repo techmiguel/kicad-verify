@@ -2,12 +2,24 @@
 the conversation that generated the design), and re-checks every piece of evidence it cites.
 
 Verdict rules (enforced here, not trusted to the model):
-- PASS with >= 1 evidence quote found verbatim (whitespace/case-insensitive) in the cited file -> VERIFIED.
+- PASS with >= 1 valid evidence quote -> VERIFIED.
 - PASS without valid evidence -> NOT_VERIFIABLE (unproven). Missing verdict -> NOT_VERIFIABLE.
 - FAIL with valid evidence -> FAILED; without -> NOT_VERIFIABLE (unverified claim, check by hand).
 - NOT_VERIFIABLE -> NOT_VERIFIABLE (the gates decide whether it blocks).
-A review is evidence for one design hash and one requirement set; `load_current` reuses it only
-while both are unchanged.
+A quote is valid evidence when it is found verbatim (whitespace/case-insensitive) in the cited file
+AND that file is an independent source: a design file, a datasheet, the design intent, or a
+mechanical extraction of them (`design.json`, `datasheets_text/`). Quotes from the conclusions of
+other verifiers (`verify_report.json`, `kicad_happy.json`, `estimates.json`, any file under
+verification/pcb/reports/) are recorded as derived and never count: the reviewer may use them to
+orient itself, but its verdict must stand on sources it could have read without them.
+
+What this proves is EVIDENCE INTEGRITY, not the reasoning: the cited text exists in the cited
+independent source. Whether the text supports the conclusion (a quoted "3.0-3.6 V" next to the
+claim "5 V is fine") is not checked by code. That is why reviewer requirements gate the release,
+next to human sign-offs, and never replace them.
+
+A review is evidence for one design hash and one review key (requirements, intent, datasheets,
+prompt, model); `load_current` reuses it only while both are unchanged.
 """
 import json
 import logging
@@ -54,6 +66,21 @@ SCHEMA = {
     "required": ["verdicts", "extra_findings"],
 }
 GUARD_ENV = "KICAD_VERIFY_REVIEWER"
+ASSURANCE = "evidence-integrity"  # what a reviewer VERIFIED means; see the module doc
+# Bundle files by independence. primary: the project's own files (design, datasheets, intent);
+# extracted: mechanical, lossless-in-intent extractions of them; derived: conclusions of other
+# verifiers or of kicad-verify's own inference, which a quote must not rest on.
+SOURCES = {
+    "requirements.json": ("derived", "the requirements being judged"),
+    "verify_report.json": ("derived", "results of the deterministic verifiers"),
+    "kicad_happy.json": ("derived", "results of the kicad-happy analyzers"),
+    "estimates.json": ("derived", "rail voltages and regulator outputs inferred by kicad-verify"),
+    "datasheets.json": ("derived", "index of datasheet files guessed from file names"),
+    "sources.json": ("derived", "this classification"),
+    "design.json": ("extracted", "components, pin tables and nets exported from the schematic"),
+    "datasheets_text/": ("extracted", "plain text of the local datasheet PDFs"),
+    "context/": ("extracted", "copies of the design intent and context files"),
+}
 logging.getLogger("pypdf").setLevel(logging.ERROR)  # malformed vendor PDFs are common; keep output clean
 
 
@@ -87,7 +114,7 @@ def build_bundle(root, proj, designs, report, kh_summaries):
     reqs = [{"id": r["id"], "text": r["text"]} for r in proj["requirements"] if r.get("method") == "model"]
     (bdir / "requirements.json").write_text(json.dumps(reqs, indent=1), encoding="utf-8")
     (bdir / "verify_report.json").write_text(json.dumps(report, indent=1, ensure_ascii=False), encoding="utf-8")
-    design = {}
+    design, estimates = {}, {}
     all_comps = {}
     for label, nl in designs.items():
         if nl is None:
@@ -108,10 +135,15 @@ def build_bundle(root, proj, designs, report, kh_summaries):
             "components": comps, "pin_tables": pin_tables,
             "nets": {n: [f"{x['ref']}.{x['pin']}" + (f"({x['name']})" if x['name'] else "") for x in nodes]
                      for n, nodes in nl["nets"].items()},
+        }
+        estimates[label] = {
             "rail_voltages_estimated": {n: v for n, v in cir.v.items() if v is not None},
             "fixed_regulators": {r: {"output_net": n, "vout": v} for r, (n, v, _) in cir.reg_out.items()},
         }
     (bdir / "design.json").write_text(json.dumps(design, indent=1, ensure_ascii=False), encoding="utf-8")
+    (bdir / "estimates.json").write_text(json.dumps(estimates, indent=1, ensure_ascii=False), encoding="utf-8")
+    (bdir / "sources.json").write_text(json.dumps(
+        {k: {"independence": c, "content": what} for k, (c, what) in SOURCES.items()}, indent=1), encoding="utf-8")
     if any(kh_summaries.values()):
         (bdir / "kicad_happy.json").write_text(json.dumps(kh_summaries, indent=1, default=str), encoding="utf-8")
     _copy_context(root, proj, bdir)
@@ -189,7 +221,27 @@ def _file_text(path):
     return _TEXT_CACHE[key]
 
 
+def independence(path, root, bdir):
+    """("primary" | "extracted" | "derived", what the file is) for a file the reviewer cited."""
+    path = Path(path).resolve()
+    try:
+        rel = path.relative_to(Path(bdir).resolve()).as_posix()
+    except ValueError:
+        rel = None
+    if rel is not None:
+        for k, v in SOURCES.items():
+            if rel == k or (k.endswith("/") and rel.startswith(k)):
+                return v
+        return "derived", "review bundle file"
+    vd = (Path(root) / config.DIRNAME).resolve()
+    for sub in ("reports", "review", "release", "attestations", "interface"):
+        if path.is_relative_to(vd / sub):
+            return "derived", f"kicad-verify output ({config.DIRNAME}/{sub})".replace("\\", "/")
+    return "primary", "project file"
+
+
 def check_evidence(ev, root, bdir):
+    """(valid, why). Valid = verbatim in the cited file AND the file is not a derived source."""
     q = ev.get("quote") or ""
     if len(q.strip()) < 8:
         return False, "quote shorter than 8 characters"
@@ -198,6 +250,11 @@ def check_evidence(ev, root, bdir):
     path = next((c for c in cands if c.is_file()), None)
     if path is None:
         return False, f"file not found: {f}"
+    cls, what = independence(path, root, bdir)
+    if cls == "derived":
+        found = _norm(q) in (_file_text(path) or "")
+        return False, (f"derived source ({what}): {'quote found, but ' if found else ''}"
+                       "evidence must come from the design files, datasheets or design intent")
     txt = _file_text(path)
     if txt is None:
         return False, f"cannot extract text from {f}"
@@ -339,7 +396,7 @@ def load_current(proj, design_hash, review_key):
         return None, f"last review is for design {str(rep.get('design_hash'))[:12]}", None
     if rep.get("review_key") != review_key:
         return None, ("the review inputs changed since the last review (requirements, design intent, "
-                      "datasheets or reviewer prompt)"), None
+                      "datasheets, reviewer prompt or reviewer model)"), None
     if not rep.get("results"):
         return None, "the last review did not run", None
     res = [Result.from_dict(d) for d in rep["results"]]

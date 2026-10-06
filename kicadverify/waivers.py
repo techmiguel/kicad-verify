@@ -9,6 +9,8 @@ from .report import FAIL, PASS, WARN, Result
 
 
 def vkey(*parts):
+    # A finding identifier, not an integrity hash: it is written into users' waivers.yaml, so it
+    # must stay stable across versions (changing the hash would orphan every existing waiver).
     return hashlib.sha1("|".join(str(p) for p in parts).encode()).hexdigest()[:10]
 
 

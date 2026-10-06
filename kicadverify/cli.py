@@ -102,12 +102,20 @@ def intent_check(prov, root):
                   coverage=report.coverage("design intent fields", total, gaps))
 
 
-def review_key(prov, reqs_hash):
+def reviewer_model(proj, model=None):
+    return model or proj["project"].get("reviewer_model") or (proj["params"].get("review") or {}).get("model", "opus")
+
+
+def review_key(prov, reqs_hash, model=None):
     """What a review depends on besides the design: the requirements it judged, the intent and context
-    it was given, the datasheets it could quote and the prompt it ran with."""
-    return provenance.digest({"requirements": reqs_hash, "intent": prov["intent"]["digest"],
-                              "datasheets": provenance.digest(prov["artifacts"]["groups"]["datasheets"]),
-                              "prompt": prov["policy"]["components"]["reviewer_prompt"]})
+    it was given, the datasheets it could quote, the prompt it ran with and the model asked to run it.
+    A review made with another model than the configured one is not reused by later runs."""
+    key = {"requirements": reqs_hash, "intent": prov["intent"]["digest"],
+           "datasheets": provenance.digest(prov["artifacts"]["groups"]["datasheets"]),
+           "prompt": prov["policy"]["components"]["reviewer_prompt"]}
+    if model:
+        key["model"] = model
+    return provenance.digest(key)
 
 
 def finish(root, proj, mode, raw_results, dh=None, review_note=None, prov=None, review_prov=None):
@@ -143,7 +151,7 @@ def analyse(root, mode="full"):
     det, designs, kh = checks(root, proj, mode)
     prov = provenance.collect(root, proj, sorted(kh))
     raw = det + [intent_check(prov, root)] + signoff.results(root, proj["requirements"], dh, prov["policy"])
-    rkey = review_key(prov, requirements.requirements_hash(proj["requirements"]))
+    rkey = review_key(prov, requirements.requirements_hash(proj["requirements"]), reviewer_model(proj))
     rev, why, rprov = review.load_current(proj, dh, rkey)
     rep, results = finish(root, proj, mode, raw + (rev or []), dh, None if rev else why, prov, rprov)
     return rep, {"proj": proj, "designs": designs, "kh": kh, "raw": raw, "results": results, "dh": dh,
@@ -164,11 +172,11 @@ def do_review(root, model=None, rep=None, ctx=None):
     if rep is None:
         rep, ctx = analyse(root, "full")
     proj = ctx["proj"]
-    model = model or proj["project"].get("reviewer_model") or (proj["params"].get("review") or {}).get("model", "opus")
+    model = reviewer_model(proj, model)
     reqs_model = [r for r in proj["requirements"] if r["method"] == "model"]
     bdir, reqs = review.build_bundle(proj["root"], proj, ctx["designs"], rep, ctx["kh"])
     timeout = int((proj["params"].get("review") or {}).get("timeout_s", 1800))
-    rkey = ctx["review_key"]
+    rkey = review_key(ctx["prov"], requirements.requirements_hash(proj["requirements"]), model)
     rprov = review.provenance_of(proj["root"], bdir, ctx["prov"], rkey)
     try:
         raw, meta = review.run_reviewer(proj["root"], bdir, model, timeout)
@@ -491,6 +499,9 @@ def _explain(root, rid):
          f"  source       {(v.get('source') or {}).get('kind')}: {(v.get('source') or {}).get('ref')}"
          + (" (UNCONFIRMED)" if (v.get("source") or {}).get("confirmed") is False else ""),
          f"  method       {v['method']} via {', '.join(v['verified_by'])}; acceptance {v['acceptance']}; gate {v['gate']}",
+         f"  assurance    {v.get('assurance') or '-'}"
+         + (" (quotes verified verbatim in independent sources; the reasoning is not verified by code)"
+            if v.get("assurance") == "evidence-integrity" else ""),
          f"  reason       {v['reason']}"]
     c = v.get("coverage")
     if c:
