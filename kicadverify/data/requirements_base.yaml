@@ -1,0 +1,70 @@
+# Base requirements inherited by every project. A project overrides `params`, adds its own
+# requirements and can `disable` ids in verification/pcb/requirements.yaml.
+# method: auto (deterministic check) | model (independent reviewer, evidence validated) | human (sign-off)
+params:
+  min_power_width_mm: 0.25
+  # power_net_patterns: ["^/?MOTOR"]
+  hole_keepout_extra_mm: 1.4        # keep-out radius = drill/2 + this (washer / screw head)
+  # mounting_refs: [H1, H2]          # when mounting holes do not use MountingHole* footprints
+  # mounting_holes: {drill_mm: 3.2, tol_mm: 0.1, expected: [[x, y], ...]}   # PCB coordinates
+  # net_voltages: {"/VIN": 12, "/L_IN": 156}   # rails whose voltage is not in the name
+  logic_high_v: 3.3
+  led_max_ma: 20
+  led_min_ma: 0.3
+  gpio_max_ma: 12
+  min_dropout_v: 0.3
+  fab:
+    cpl_tol_mm: 0.5
+    # dir: fabrication
+    # bom: fabrication/BOM_JLCPCB.csv
+    # cpl: fabrication/CPL_JLCPCB.csv
+  kicad_happy:
+    enabled: true
+    # severity: {PU-001: off, TE-001: info}     # per-rule override: fail | warn | info | off
+  interface:
+    step_user_origin: "0x0mm"         # origin used for the board STEP consumed by cad-verify
+  review:
+    model: opus
+    timeout_s: 1800
+    datasheet_dirs: [datasheets, docs/datasheets, docs]
+    context_files: [verification/pcb/design_intent.md, README.md, CHANGELOG.md, docs/*.md]
+requirements:
+  # --- deterministic: KiCad
+  - {id: PCB-ERC-001, method: auto, text: "ERC has no errors; warnings reviewed or waived"}
+  - {id: PCB-DRC-001, method: auto, text: "DRC has no errors at full severity"}
+  - {id: PCB-CONN-001, method: auto, text: "Every schematic connection is routed"}
+  - {id: PCB-PARITY-001, method: auto, text: "Schematic and PCB have the same parts, footprints and net per pin"}
+  - {id: PCB-PINMAP-001, method: auto, text: "Every symbol pin has a pad in its footprint and no electrical pad is left without a pin"}
+  # --- deterministic: board
+  - {id: PCB-FOOT-001, method: auto, text: "Only approved footprints (checked against the datasheet)"}
+  - {id: PCB-MODEL-001, method: auto, text: "Every footprint has a 3D model (needed for the enclosure fit check)"}
+  - {id: PCB-PADNET-001, method: auto, text: "No pad without a net unless the pin is NC"}
+  - {id: PCB-WIDTH-001, method: auto, text: "Power tracks are at least min_power_width_mm wide"}
+  - {id: PCB-PINS-001, method: auto, text: "Critical pins match verification/pcb/pins.yaml (from the datasheet)"}
+  - {id: PCB-HOLE-001, method: auto, text: "Mounting holes at the expected position and diameter"}
+  - {id: PCB-KEEPOUT-001, method: auto, text: "No track, via or pad of another net inside the mounting-hole keep-out"}
+  # --- deterministic: circuit
+  - {id: CIR-POL-001, method: auto, text: "LEDs, diodes, clamps and polarized capacitors are not reversed"}
+  - {id: CIR-REG-001, method: auto, text: "Fixed regulators output the voltage of the rail they drive, with enough input headroom"}
+  - {id: CIR-LED-001, method: auto, text: "LED current within led_min_ma..led_max_ma"}
+  - {id: CIR-BJT-001, method: auto, text: "Bipolar transistors have a base resistor and base current within gpio_max_ma"}
+  - {id: CIR-FLOAT-001, method: auto, text: "Enable/reset/boot pins are not floating"}
+  - {id: KH-*, method: auto, text: "kicad-happy detectors (errors gate, warnings reported)"}
+  # --- deterministic: fabrication
+  - {id: FAB-GERBER-001, method: auto, text: "Gerber set has every mandatory layer"}
+  - {id: FAB-STALE-001, method: auto, text: "Gerbers match the current PCB"}
+  - {id: FAB-DRILL-001, method: auto, text: "Drill diameters, counts and positions in the .drl files match the PCB"}
+  - {id: FAB-BOM-001, method: auto, text: "BOM lists exactly the assembled parts, with matching footprints and supplier codes"}
+  - {id: FAB-CPL-001, method: auto, text: "CPL lists every assembled part at its pad centre, on the right side"}
+  # --- independent reviewer (evidence is re-checked by code)
+  - {id: MOD-PINOUT-001, method: model, text: "Every IC, module and connector pin assignment matches its datasheet pinout (supply, ground, enable, boot strapping, signal direction)"}
+  - {id: MOD-STRAP-001, method: model, text: "Boot/strapping, enable and reset pins sit at the levels the datasheet requires for normal start-up"}
+  - {id: MOD-POWER-001, method: model, text: "Every rail source can supply its load and no part sees a voltage above its absolute maximum rating"}
+  - {id: MOD-PROT-001, method: model, text: "External inputs have protection sized for the application (fuse rating vs load current, surge/ESD, reverse polarity where relevant)"}
+  - {id: MOD-VALUE-001, method: model, text: "Component values fit their function and ratings (pull-ups, LED/base resistors, timing RCs, voltage/power ratings)"}
+  - {id: MOD-FOOT-001, method: model, text: "Each footprint matches the package of the ordered part (MPN or supplier code), including pin-1 orientation"}
+  # --- human sign-off (bound to the design hash; any change invalidates it)
+  - {id: HUM-FIT-001, method: human, text: "1:1 print of the board checked with the real parts"}
+  - {id: HUM-POL-001, method: human, text: "Polarity and pin 1 of ICs, diodes, LEDs and connectors checked against datasheets"}
+  - {id: HUM-CPL-001, method: human, text: "CPL rotations checked in the fab house viewer"}
+  - {id: HUM-PROTO-001, method: human, text: "Prototype assembled and working to specification"}

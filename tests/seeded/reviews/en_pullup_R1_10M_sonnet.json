@@ -1,0 +1,248 @@
+{
+ "tool": "kicad-verify",
+ "kind": "review",
+ "time": "2026-10-06T20:21:25+00:00",
+ "design_hash": "705e40bcbd4d67d5b096614c7885886b40c76aa5",
+ "reviewer": {
+  "model": "sonnet",
+  "duration_s": 56.0,
+  "returncode": 0,
+  "cost_usd": 0.23732840000000002,
+  "num_turns": 9,
+  "is_error": false,
+  "models": [
+   "claude-sonnet-5-5"
+  ]
+ },
+ "overall": "FAIL",
+ "requirements": [
+  {
+   "id": "MOD-PINOUT-001",
+   "model_verdict": "WARN",
+   "status": "WARN",
+   "summary": "ESP-12F pin names and strapping signals are consistent with the ESP8266 datasheet. The AMS1117 pinout looks right (1 GND, 2 VO, 3 VI). The datasheets in the bundle do not include an ESP-12F or HLK-PM01 pinout, and the relay datasheet is only a URL, so those pin tables were not checked against a datasheet. J3 is a 2x03 header drawn with a 1x06 symbol.",
+   "evidence_ok": 3,
+   "evidence_rejected": [],
+   "evidence": [
+    {
+     "file": "design.json",
+     "locator": "pin_tables.U2 pin 3",
+     "quote": "\"name\": \"EN\"",
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "file": "design.json",
+     "locator": "pin_tables.J3 / components J3 footprint",
+     "quote": "PinHeader_2x03_P2.54mm_Vertical",
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "file": "datasheets_text/esp-wroom-02_datasheet_en.txt",
+     "locator": "page 9 Table 2-1",
+     "quote": "2 EN Chip enable pin. Active high.",
+     "valid": true,
+     "why": "ok"
+    }
+   ]
+  },
+  {
+   "id": "MOD-STRAP-001",
+   "model_verdict": "FAIL",
+   "status": "FAIL",
+   "summary": "EN is pulled to 3V3 through R1 = 10M with C7 (100nF) to GND. 10 MΩ is far too weak for a chip-enable pull-up, and it is a probable typo for 10k. Leakage or noise can hold EN low, and C7 takes seconds to charge. R1 uses LCSC C25804, which is the 10k part used for R2–R5, so BOM and schematic disagree. The other straps are fine: GPIO15 is pulled low by R5 (10k) and GPIO0 and GPIO2 are pulled up by R3 and R4 (10k).",
+   "evidence_ok": 3,
+   "evidence_rejected": [
+    "design.json: quote shorter than 8 characters"
+   ],
+   "evidence": [
+    {
+     "file": "design.json",
+     "locator": "components R1",
+     "quote": "\"value\": \"10M\"",
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "file": "design.json",
+     "locator": "nets /EN",
+     "quote": "\"R1.2\"",
+     "valid": false,
+     "why": "quote shorter than 8 characters"
+    },
+    {
+     "file": "datasheets_text/esp-wroom-02_datasheet_en.txt",
+     "locator": "page 9 Table 2-1",
+     "quote": "2 EN Chip enable pin. Active high.",
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "file": "datasheets_text/esp-wroom-02_datasheet_en.txt",
+     "locator": "page 9 IO15",
+     "quote": "Pull down.",
+     "valid": true,
+     "why": "ok"
+    }
+   ]
+  },
+  {
+   "id": "MOD-POWER-001",
+   "model_verdict": "PASS",
+   "status": "PASS",
+   "summary": "The HLK-PM01 supplies the 5 V rail, which feeds the relay coil and the AMS1117, and the AMS1117 supplies 3V3 to the ESP. 5 V is well under the AMS1117 15 V input limit. The 5 V to 3.3 V drop is about 1.7 V, so SOT-223 dissipation at roughly 0.3 A is about 0.5 W, within the 1.2 W guarantee. The HLK-PM01 rating (about 600 mA) was taken from my own knowledge, not from a bundled datasheet. It covers the ESP (up to about 300 mA) plus the relay coil.",
+   "evidence_ok": 2,
+   "evidence_rejected": [],
+   "evidence": [
+    {
+     "file": "datasheets_text/ams1117.txt",
+     "locator": "page 2",
+     "quote": "Input Voltage               15V",
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "file": "datasheets_text/ams1117.txt",
+     "locator": "note 2",
+     "quote": "maximum power dissipation of 1.2 W for SOT-223",
+     "valid": true,
+     "why": "ok"
+    }
+   ]
+  },
+  {
+   "id": "MOD-PROT-001",
+   "model_verdict": "WARN",
+   "status": "WARN",
+   "summary": "The mains input has fuse F1 (T500mA 250V) and varistor RV1 (07D221K) across L_F–N. The fuse is sized for the HLK-PM01 only. The relay switches L_IN to L_OUT upstream of the fuse, so the 16 A load path has no fuse. RV1 was not checked against a datasheet; the 07D221K is rated at about 140 VAC, which is marginal at 230 V. No context file states the mains voltage, and I assumed 230 V. There is no reverse-polarity or ESD protection on the J3 header.",
+   "evidence_ok": 1,
+   "evidence_rejected": [
+    "design.json: quote shorter than 8 characters",
+    "design.json: quote shorter than 8 characters"
+   ],
+   "evidence": [
+    {
+     "file": "design.json",
+     "locator": "nets /L_IN",
+     "quote": "\"F1.1\"",
+     "valid": false,
+     "why": "quote shorter than 8 characters"
+    },
+    {
+     "file": "design.json",
+     "locator": "nets /L_IN",
+     "quote": "\"K1.13\"",
+     "valid": false,
+     "why": "quote shorter than 8 characters"
+    },
+    {
+     "file": "design.json",
+     "locator": "components RV1",
+     "quote": "\"value\": \"07D221K\"",
+     "valid": true,
+     "why": "ok"
+    }
+   ]
+  },
+  {
+   "id": "MOD-VALUE-001",
+   "model_verdict": "FAIL",
+   "status": "FAIL",
+   "summary": "R1 = 10M on the EN pull-up is wrong for its function (see MOD-STRAP-001). The other values are plausible. R6 = 1k with R7 = 10k pull-down drives the SS8050 base correctly. The coil flyback diode D1 is correctly oriented. LED resistors R8 and R9 are sensible.",
+   "evidence_ok": 2,
+   "evidence_rejected": [],
+   "evidence": [
+    {
+     "file": "design.json",
+     "locator": "components R1",
+     "quote": "\"value\": \"10M\"",
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "file": "design.json",
+     "locator": "components R1 fields",
+     "quote": "\"LCSC\": \"C25804\"",
+     "valid": true,
+     "why": "ok"
+    }
+   ]
+  },
+  {
+   "id": "MOD-FOOT-001",
+   "model_verdict": "WARN",
+   "status": "WARN",
+   "summary": "No datasheet or footprint drawing is bundled for the relay, HLK-PM01, fuse, varistor or ESP-12F, so I could not confirm their footprints. K1 is a G5RL-1A-E-HR drawn with the G2RL-1A-E symbol and footprint, which may differ in pin layout. The fuse footprint is Littelfuse 395 Series, which does not clearly match LCSC C2762401. U1 uses SOT-223-3_TabPin2 and Q1 uses SOT-23, which suit the AMS1117 and SS8050.",
+   "evidence_ok": 3,
+   "evidence_rejected": [],
+   "evidence": [
+    {
+     "file": "design.json",
+     "locator": "components K1",
+     "quote": "Relay_THT:Relay_SPST_Omron_G2RL-1A-E",
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "file": "design.json",
+     "locator": "components K1 value",
+     "quote": "G5RL-1A-E-HR DC5",
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "file": "design.json",
+     "locator": "components F1",
+     "quote": "Fuse:Fuse_Littelfuse_395Series",
+     "valid": true,
+     "why": "ok"
+    }
+   ]
+  }
+ ],
+ "extra_findings": [
+  {
+   "key": "extra-0",
+   "text": "warning: The /context folder with design intent is missing from the bundle, so the mains voltage and load were assumed to be 230 VAC with a 16 A relay load.",
+   "status": "WARN",
+   "evidence": [
+    {
+     "file": "design.json",
+     "locator": "components K1 Description",
+     "quote": "Relay SPST-NO 16 A 250 VAC, 5 V coil, high inrush current (HR)",
+     "valid": true,
+     "why": "ok"
+    }
+   ]
+  },
+  {
+   "key": "extra-1",
+   "text": "warning: The relay load current does not pass through F1, so a fault on L_OUT is not covered by any fuse. The J1 mains-to-low-voltage creepage was not checked. [unverified]",
+   "status": "WARN",
+   "evidence": [
+    {
+     "file": "design.json",
+     "locator": "nets /L_OUT",
+     "quote": "\"K1.14\"",
+     "valid": false,
+     "why": "quote shorter than 8 characters"
+    }
+   ]
+  },
+  {
+   "key": "extra-2",
+   "text": "warning: J3 UART header exposes +5V and GND but the ESP-12F and AMS1117 are 3.3 V devices, so a 5 V USB-UART adapter would drive 5 V onto the TXD and RXD lines at 3.3 V ESP pins. No level protection is provided.",
+   "status": "WARN",
+   "evidence": [
+    {
+     "file": "design.json",
+     "locator": "pin_tables.J3 pin 2",
+     "quote": "\"net\": \"+5V\"",
+     "valid": true,
+     "why": "ok"
+    }
+   ]
+  }
+ ]
+}

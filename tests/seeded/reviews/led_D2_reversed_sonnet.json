@@ -1,0 +1,224 @@
+{
+ "tool": "kicad-verify",
+ "kind": "review",
+ "time": "2026-10-06T19:57:50+00:00",
+ "design_hash": "f556390a46e8e5c9350747a4966616c4c13982b5",
+ "reviewer": {
+  "model": "sonnet",
+  "duration_s": 58.0,
+  "returncode": 0,
+  "cost_usd": 0.18881199999999998,
+  "num_turns": 6,
+  "is_error": false,
+  "models": [
+   "claude-sonnet-5-5"
+  ]
+ },
+ "overall": "FAIL",
+ "requirements": [
+  {
+   "id": "MOD-PINOUT-001",
+   "model_verdict": "FAIL",
+   "status": "FAIL",
+   "summary": "D2 status LED is wired backwards. Its cathode is on /RELAY (GPIO5) and its anode goes through R8 to GND, so it lights when the relay is OFF and stays dark when the relay is ON. The PCB also differs from the schematic: pads 1 and 2 of D2 are swapped and short to the neighbouring nets (the DRC shorts and the parity differences confirm this). ESP-12F, AMS1117, Q1 (B/E/C) and PS1 pin assignments look correct.",
+   "evidence_ok": 3,
+   "evidence_rejected": [],
+   "evidence": [
+    {
+     "file": "design.json",
+     "locator": "nets./RELAY",
+     "quote": "\"D2.1(K_1)\"",
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "file": "design.json",
+     "locator": "nets.Net-(D2-A)",
+     "quote": "\"D2.2(A_2)\"",
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "file": "verify_report.json",
+     "locator": "CIR-POL-001",
+     "quote": "LED anode on Net-(D2-A) resolves to GND - reversed, it will never light",
+     "valid": true,
+     "why": "ok"
+    }
+   ]
+  },
+  {
+   "id": "MOD-STRAP-001",
+   "model_verdict": "PASS",
+   "status": "PASS",
+   "summary": "GPIO15 has a 10k pull-down (R5 to GND). GPIO2 has a 10k pull-up (R4 to +3V3). GPIO0 has a 10k pull-up (R3) and button SW1 to GND, and the J3 programming header also reaches it. EN and RST each have a 10k pull-up (R1, R2). The datasheet strapping requirements are met.",
+   "evidence_ok": 2,
+   "evidence_rejected": [
+    "design.json: quote shorter than 8 characters"
+   ],
+   "evidence": [
+    {
+     "file": "datasheets_text/esp-wroom-02_datasheet_en.txt",
+     "locator": "page 9, IO15",
+     "quote": "Pull down.",
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "file": "datasheets_text/esp-wroom-02_datasheet_en.txt",
+     "locator": "page 9, IO0",
+     "quote": "•Flash boot: ﬂoating or pull up.",
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "file": "design.json",
+     "locator": "nets./GPIO15",
+     "quote": "\"R5.1\"",
+     "valid": false,
+     "why": "quote shorter than 8 characters"
+    }
+   ]
+  },
+  {
+   "id": "MOD-POWER-001",
+   "model_verdict": "PASS",
+   "status": "PASS",
+   "summary": "PS1 (HLK-PM01) supplies the 5V rail, which feeds the relay coil, the AMS1117 and the programming header. The AMS1117 input is 5V against a 15V absolute maximum, so it is well inside its rating. The 3.3V load (ESP-12F) is small. The relay coil load is modest, but no coil datasheet was readable (the Omron PDF failed to extract), so the exact coil current was not checked.",
+   "evidence_ok": 2,
+   "evidence_rejected": [],
+   "evidence": [
+    {
+     "file": "datasheets_text/ams1117.txt",
+     "locator": "page 2, Absolute Maximum Ratings",
+     "quote": "Input Voltage               15V",
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "file": "design.json",
+     "locator": "nets.+5V",
+     "quote": "\"PS1.4(+Vout_4)\"",
+     "valid": true,
+     "why": "ok"
+    }
+   ]
+  },
+  {
+   "id": "MOD-PROT-001",
+   "model_verdict": "FAIL",
+   "status": "FAIL",
+   "summary": "RV1 is a 07D221K varistor, a 220V-class part with an AC rating of roughly 140V RMS. That is too low for 230V mains, so it would conduct continuously and overheat or fail. A 07D471K (about 300V RMS) is needed. The fuse is T500mA 250V on the PS1 line only, which is acceptable for a 3W supply.",
+   "evidence_ok": 2,
+   "evidence_rejected": [],
+   "evidence": [
+    {
+     "file": "design.json",
+     "locator": "components RV1",
+     "quote": "\"value\": \"07D221K\"",
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "file": "design.json",
+     "locator": "components F1",
+     "quote": "\"value\": \"T500mA 250V\"",
+     "valid": true,
+     "why": "ok"
+    }
+   ]
+  },
+  {
+   "id": "MOD-VALUE-001",
+   "model_verdict": "WARN",
+   "status": "WARN",
+   "summary": "R6/R7 base network: 1k series gives about 2.3mA base current and 10k pulls the base to GND, which is adequate for a 5V relay coil on an SS8050. LED resistors are 1k (D2) and 220R (D3) and are fine. The values pass, but the D2 resistor and polarity problem and the RV1 rating (see MOD-PROT-001) remain.",
+   "evidence_ok": 2,
+   "evidence_rejected": [],
+   "evidence": [
+    {
+     "file": "design.json",
+     "locator": "components R6",
+     "quote": "\"value\": \"1k\"",
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "file": "design.json",
+     "locator": "components R9",
+     "quote": "\"value\": \"220\"",
+     "valid": true,
+     "why": "ok"
+    }
+   ]
+  },
+  {
+   "id": "MOD-FOOT-001",
+   "model_verdict": "FAIL",
+   "status": "FAIL",
+   "summary": "The D2 footprint pads are shorted to the wrong nets on the PCB. The PCB nets are inconsistent with the schematic (D2.2 and R8.1 are on Net-(D2-K)), so pin 1 and pin 2 of D2 are effectively swapped. Separately, the ESP-12F uses the generic ESP-12E footprint (the usual practice) and the relay footprint is the G2RL-1A-E for a G5RL part. I could not verify the relay footprint because its datasheet was unreadable.",
+   "evidence_ok": 2,
+   "evidence_rejected": [],
+   "evidence": [
+    {
+     "file": "verify_report.json",
+     "locator": "PCB-PARITY-001",
+     "quote": "D2.2: net Net-(D2-K) on PCB vs Net-(D2-A) in schematic",
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "file": "design.json",
+     "locator": "components K1",
+     "quote": "\"footprint\": \"Relay_THT:Relay_SPST_Omron_G2RL-1A-E\"",
+     "valid": true,
+     "why": "ok"
+    }
+   ]
+  }
+ ],
+ "extra_findings": [
+  {
+   "key": "extra-0",
+   "text": "error: PCB has copper shorts between /RELAY and the D2 net (DRC shorting_items and solder_mask_bridge errors). The board cannot be fabricated as it stands.",
+   "status": "FAIL",
+   "evidence": [
+    {
+     "file": "verify_report.json",
+     "locator": "PCB-DRC-001",
+     "quote": "Items shorting two nets (nets /RELAY and Net-(D2-K))",
+     "valid": true,
+     "why": "ok"
+    }
+   ]
+  },
+  {
+   "key": "extra-1",
+   "text": "warning: Symbol Conn_01x06 is used with a 2x03 pin header footprint for the PROG connector J3. This is an unusual UART programming header pinout (it does not match the common 1x06 FTDI header), and the pin-to-pad mapping should be checked.",
+   "status": "WARN",
+   "evidence": [
+    {
+     "file": "design.json",
+     "locator": "components J3",
+     "quote": "PinHeader_2x03_P2.54mm_Vertical",
+     "valid": true,
+     "why": "ok"
+    }
+   ]
+  },
+  {
+   "key": "extra-2",
+   "text": "warning: The mains terminal L_IN to the relay is not fused. Only the PS1 branch is protected by F1, so the 16A relay and load path has no overcurrent protection on the board. [unverified]",
+   "status": "WARN",
+   "evidence": [
+    {
+     "file": "design.json",
+     "locator": "nets./L_IN",
+     "quote": "\"F1.1\"",
+     "valid": false,
+     "why": "quote shorter than 8 characters"
+    }
+   ]
+  }
+ ]
+}

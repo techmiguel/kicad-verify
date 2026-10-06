@@ -1,0 +1,206 @@
+{
+ "tool": "kicad-verify",
+ "kind": "review",
+ "time": "2026-10-06T20:25:16+00:00",
+ "design_hash": "b3f3dc19417883e3a1601cb3d2847f6c99aa6a22",
+ "reviewer": {
+  "model": "sonnet",
+  "duration_s": 56.5,
+  "returncode": 0,
+  "cost_usd": 0.27991520000000003,
+  "num_turns": 15,
+  "is_error": false,
+  "models": [
+   "claude-sonnet-5-5"
+  ]
+ },
+ "overall": "FAIL",
+ "requirements": [
+  {
+   "id": "MOD-PINOUT-001",
+   "model_verdict": "PASS",
+   "status": "PASS",
+   "summary": "U1 (AMS1117 SOT-223: 1 GND, 2 VOUT, 3 VIN) matches. ESP-12F pin table (RST, ADC, EN, GPIO16/14/12/13, VCC, SPI, GND, GPIO15/2/0/4/5, RXD, TXD) matches the standard ESP-12F pinout. Q1 B/E/C, PS1 and J3 mapping are consistent with the README. The Omron relay datasheet is not local, so K1 pin numbers were not checked against it.",
+   "evidence_ok": 2,
+   "evidence_rejected": [
+    "datasheets_text/ams1117.txt: quote shorter than 8 characters"
+   ],
+   "evidence": [
+    {
+     "file": "datasheets_text/ams1117.txt",
+     "locator": "p1 pin connections",
+     "quote": "3- VIN",
+     "valid": false,
+     "why": "quote shorter than 8 characters"
+    },
+    {
+     "file": "verification/pcb/review/bundle/design.json",
+     "locator": "pin_tables.U1",
+     "quote": "\"name\": \"VO\"",
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "file": "verification/pcb/review/bundle/datasheets_text/esp8266_hardware_design_guidelines_en.txt",
+     "locator": "pin table",
+     "quote": "13 MTDO I/O GPIO 15; HSPI_CS; UART0_RTS",
+     "valid": true,
+     "why": "ok"
+    }
+   ]
+  },
+  {
+   "id": "MOD-STRAP-001",
+   "model_verdict": "PASS",
+   "status": "FAIL",
+   "summary": "The strapping pins sit at the levels needed for boot from flash. GPIO15 is pulled to GND by R5, GPIO2 is pulled up by R4 and GPIO0 by R3, and EN is pulled up by R1 with C7. RST is pulled up by R2 with C8. GPIO5 (relay) is held low by R7 at reset.",
+   "evidence_ok": 0,
+   "evidence_rejected": [
+    "verification/pcb/review/bundle/design.json: quote shorter than 8 characters",
+    "verification/pcb/review/bundle/design.json: quote shorter than 8 characters"
+   ],
+   "evidence": [
+    {
+     "file": "verification/pcb/review/bundle/design.json",
+     "locator": "nets./GPIO15",
+     "quote": "\"R5.1\",",
+     "valid": false,
+     "why": "quote shorter than 8 characters"
+    },
+    {
+     "file": "verification/pcb/review/bundle/design.json",
+     "locator": "nets./EN",
+     "quote": "\"R1.2\",",
+     "valid": false,
+     "why": "quote shorter than 8 characters"
+    }
+   ]
+  },
+  {
+   "id": "MOD-POWER-001",
+   "model_verdict": "PASS",
+   "status": "PASS",
+   "summary": "The HLK-PM01 supplies 5 V / 600 mA. The load is about 80 mA for the relay coil plus roughly 300 mA ESP peak, within that rating. U1 drops 1.7 V at about 0.3 A, so it dissipates about 0.5 W, which is acceptable in SOT-223. Dropout is specified at 0.8 A, so 5 V in gives margin. No rail exceeds a part rating. The 10 V capacitors are used at 5 V or less. K1 is a 16 A relay for a load of up to 10 A. The AMS1117 output capacitor is a 22 uF ceramic, which can be marginal for its stability requirement.",
+   "evidence_ok": 2,
+   "evidence_rejected": [],
+   "evidence": [
+    {
+     "file": "verification/pcb/review/bundle/design.json",
+     "locator": "fixed_regulators.U1",
+     "quote": "\"vout\": 3.3",
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "file": "verification/pcb/review/bundle/design.json",
+     "locator": "components C1",
+     "quote": "\"value\": \"470uF 10V\"",
+     "valid": true,
+     "why": "ok"
+    }
+   ]
+  },
+  {
+   "id": "MOD-PROT-001",
+   "model_verdict": "FAIL",
+   "status": "FAIL",
+   "summary": "F1 is specified as 'T50A 250V' in the schematic, but its LCSC part C2762401 is the Reomax MTS0500A (T500 mA) and the README says T500mA. A 50 A fuse would not protect the 600 mA HLK-PM01 branch, the varistor or the thin traces. The value fails the sizing check, and the Littelfuse 395-series footprint is for a small time-lag fuse. The BOM value, part number and schematic are inconsistent. The 07D221K varistor suits 110-120 VAC.",
+   "evidence_ok": 2,
+   "evidence_rejected": [],
+   "evidence": [
+    {
+     "file": "rele-esp12f.kicad_sch",
+     "locator": "F1 Value",
+     "quote": "(property \"Value\" \"T50A 250V\"",
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "file": "verification/pcb/review/bundle/design.json",
+     "locator": "components F1",
+     "quote": "\"value\": \"T50A 250V\"",
+     "valid": true,
+     "why": "ok"
+    }
+   ]
+  },
+  {
+   "id": "MOD-VALUE-001",
+   "model_verdict": "WARN",
+   "status": "WARN",
+   "summary": "Most values are fine. Q1 base current is about 2.6 mA through R6 1k, which is enough for an 80 mA coil. D1 is a flyback diode on the coil. LED resistors are 1k and 220 ohm. The 10k pull-ups and pull-downs are fine. F1 value 'T50A' is wrong (see MOD-PROT-001). C2/C4 22 uF ceramic on AMS1117 may oscillate or be marginal without ESR. LED D3 part C51933294 is unusual and could not be verified.",
+   "evidence_ok": 2,
+   "evidence_rejected": [],
+   "evidence": [
+    {
+     "file": "verification/pcb/review/bundle/design.json",
+     "locator": "components R6",
+     "quote": "\"value\": \"1k\"",
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "file": "verification/pcb/review/bundle/design.json",
+     "locator": "components C4",
+     "quote": "\"value\": \"22uF 10V\"",
+     "valid": true,
+     "why": "ok"
+    }
+   ]
+  },
+  {
+   "id": "MOD-FOOT-001",
+   "model_verdict": "WARN",
+   "status": "WARN",
+   "summary": "This could not be fully confirmed. The footprints are plausible for the ordered parts: RF_Module:ESP-12E for the ESP-12F, Omron G2RL-1A-E for the G5RL relay, and Hi-Link PMxx for the HLK-PM01. No supplier datasheets or footprint approval list are available (PCB-FOOT-001 is unapproved for 17 footprints). The F1 footprint (Littelfuse 395 series) is not obviously the Reomax MTS0500A package. J3 uses a 2x03 footprint with a 1x06 symbol, which is consistent but should be checked on the board.",
+   "evidence_ok": 2,
+   "evidence_rejected": [],
+   "evidence": [
+    {
+     "file": "verification/pcb/review/bundle/design.json",
+     "locator": "components F1",
+     "quote": "\"footprint\": \"Fuse:Fuse_Littelfuse_395Series\"",
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "file": "verification/pcb/review/bundle/design.json",
+     "locator": "components K1",
+     "quote": "\"footprint\": \"Relay_THT:Relay_SPST_Omron_G2RL-1A-E\"",
+     "valid": true,
+     "why": "ok"
+    }
+   ]
+  }
+ ],
+ "extra_findings": [
+  {
+   "key": "extra-0",
+   "text": "error: F1 value 'T50A' in the schematic conflicts with the README and BOM part (T500mA). It leaves the mains supply branch unprotected, since a 50 A fuse would not clear a fault in PS1 or RV1.",
+   "status": "FAIL",
+   "evidence": [
+    {
+     "file": "rele-esp12f.kicad_sch",
+     "locator": "F1 Value",
+     "quote": "(property \"Value\" \"T50A 250V\"",
+     "valid": true,
+     "why": "ok"
+    }
+   ]
+  },
+  {
+   "key": "extra-1",
+   "text": "warning: The 22 uF ceramic output capacitor on the AMS1117-3.3 may be marginal for LDO stability, since the AMS1117 expects an output capacitor with some ESR.",
+   "status": "WARN",
+   "evidence": [
+    {
+     "file": "verification/pcb/review/bundle/design.json",
+     "locator": "components C4",
+     "quote": "\"value\": \"22uF 10V\"",
+     "valid": true,
+     "why": "ok"
+    }
+   ]
+  }
+ ]
+}

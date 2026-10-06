@@ -1,0 +1,209 @@
+{
+ "tool": "kicad-verify",
+ "kind": "review",
+ "time": "2026-10-06T20:17:36+00:00",
+ "design_hash": "122d05f4a465d35a24bf4f2cc51f3446cfbedc34",
+ "reviewer": {
+  "model": "sonnet",
+  "duration_s": 49.1,
+  "returncode": 0,
+  "cost_usd": 0.2115184,
+  "num_turns": 10,
+  "is_error": false,
+  "models": [
+   "claude-sonnet-5-5"
+  ]
+ },
+ "overall": "FAIL",
+ "requirements": [
+  {
+   "id": "MOD-PINOUT-001",
+   "model_verdict": "PASS",
+   "status": "PASS",
+   "summary": "Checked the pin tables. U1 AMS1117 (1=GND, 2=VO, 3=VI, tab on VO) matches the datasheet. U2 ESP-12F pins are mapped consistently (EN, RST, GPIO0/2/15 and UART). PS1 and Q1 (B/E/C) are connected plausibly. The Omron relay datasheet text could not be extracted, so K1 was not checked against it.",
+   "evidence_ok": 1,
+   "evidence_rejected": [
+    "datasheets_text/ams1117.txt: quote shorter than 8 characters"
+   ],
+   "evidence": [
+    {
+     "file": "datasheets_text/ams1117.txt",
+     "locator": "p1 pinout",
+     "quote": "3- VIN",
+     "valid": false,
+     "why": "quote shorter than 8 characters"
+    },
+    {
+     "file": "design.json",
+     "locator": "pin_tables.U1",
+     "quote": "\"net\": \"+3V3\"",
+     "valid": true,
+     "why": "ok"
+    }
+   ]
+  },
+  {
+   "id": "MOD-STRAP-001",
+   "model_verdict": "PASS",
+   "status": "PASS",
+   "summary": "EN is pulled up by R1 (10k to +3V3). RST is pulled up by R2. GPIO0 is pulled up by R3 with SW1 to GND. GPIO2 is pulled up by R4. GPIO15 is pulled down by R5. These are the normal run-mode levels. The datasheet says GPIO2 must be floating or pulled up.",
+   "evidence_ok": 1,
+   "evidence_rejected": [
+    "design.json: quote shorter than 8 characters"
+   ],
+   "evidence": [
+    {
+     "file": "design.json",
+     "locator": "nets./GPIO15",
+     "quote": "\"R5.1\",",
+     "valid": false,
+     "why": "quote shorter than 8 characters"
+    },
+    {
+     "file": "datasheets_text/esp-wroom-02_datasheet_en.txt",
+     "locator": "line 254",
+     "quote": "Floating (internal pull-up) or pull up.",
+     "valid": true,
+     "why": "ok"
+    }
+   ]
+  },
+  {
+   "id": "MOD-POWER-001",
+   "model_verdict": "FAIL",
+   "status": "FAIL",
+   "summary": "C1, a 470uF cap rated 4V, sits directly on the +5V rail from PS1. 5V is above its 4V rating, so it is over-voltage and will fail. The other rails are fine: U1 gets 5V in, well under its 15V maximum. The HLK-PM01 (about 3W, 5V) can supply the relay coil and the ESP.",
+   "evidence_ok": 2,
+   "evidence_rejected": [
+    "design.json: quote shorter than 8 characters"
+   ],
+   "evidence": [
+    {
+     "file": "design.json",
+     "locator": "components C1",
+     "quote": "\"value\": \"470uF 4V\"",
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "file": "design.json",
+     "locator": "nets.+5V",
+     "quote": "\"C1.1\",",
+     "valid": false,
+     "why": "quote shorter than 8 characters"
+    },
+    {
+     "file": "design.json",
+     "locator": "rail_voltages_estimated",
+     "quote": "\"+5V\": 5.0",
+     "valid": true,
+     "why": "ok"
+    }
+   ]
+  },
+  {
+   "id": "MOD-PROT-001",
+   "model_verdict": "WARN",
+   "status": "WARN",
+   "summary": "The mains input has a fuse (T500mA 250V) and a varistor. The varistor RV1 is a 07D221K, a 220V-class disc with about 140 VAC maximum continuous rating. The relay is rated 250 VAC, so mains is probably 230 VAC and RV1 would conduct at normal line voltage. The intent file is missing, so this is an assumption. The fuse sits after the relay input node, so the switched load is not fused. There is no ESD protection on the PROG header.",
+   "evidence_ok": 1,
+   "evidence_rejected": [
+    "design.json: quote shorter than 8 characters"
+   ],
+   "evidence": [
+    {
+     "file": "design.json",
+     "locator": "components RV1",
+     "quote": "\"value\": \"07D221K\"",
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "file": "design.json",
+     "locator": "nets./L_IN",
+     "quote": "\"K1.13\"",
+     "valid": false,
+     "why": "quote shorter than 8 characters"
+    }
+   ]
+  },
+  {
+   "id": "MOD-VALUE-001",
+   "model_verdict": "FAIL",
+   "status": "FAIL",
+   "summary": "C1 is a 4V part on a 5V rail, which is a voltage-rating violation. Other values are reasonable: Q1 base drive is R6 1k, R7 10k pull-down. LEDs get about 1 to 2 mA from 220R or 1k, and boot pull-ups are 10k. C4 and C2 are ceramic 22uF on the AMS1117 output and input. A ceramic output cap on an AMS1117 may be unstable because the low ESR is outside what the part tolerates.",
+   "evidence_ok": 2,
+   "evidence_rejected": [],
+   "evidence": [
+    {
+     "file": "design.json",
+     "locator": "components C1",
+     "quote": "\"value\": \"470uF 4V\"",
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "file": "design.json",
+     "locator": "components C4",
+     "quote": "\"value\": \"22uF 10V\"",
+     "valid": true,
+     "why": "ok"
+    }
+   ]
+  },
+  {
+   "id": "MOD-FOOT-001",
+   "model_verdict": "WARN",
+   "status": "WARN",
+   "summary": "Footprints match their package families: AMS1117 in SOT-223, SS8050 in SOT-23, ESP-12F in the ESP-12E footprint, and the HLK-PM01 footprint. K1 is the Omron G5RL-1A-E-HR but uses the G2RL-1A-E footprint. The G5RL datasheet text could not be extracted, so pin pitch compatibility is unconfirmed. Pin-1 orientation and the MPNs for the LCSC fuse, varistor and LED parts were not verified.",
+   "evidence_ok": 2,
+   "evidence_rejected": [],
+   "evidence": [
+    {
+     "file": "design.json",
+     "locator": "components K1",
+     "quote": "Relay_THT:Relay_SPST_Omron_G2RL-1A-E",
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "file": "design.json",
+     "locator": "components K1",
+     "quote": "G5RL-1A-E-HR DC5",
+     "valid": true,
+     "why": "ok"
+    }
+   ]
+  }
+ ],
+ "extra_findings": [
+  {
+   "key": "extra-0",
+   "text": "error: C1 (470uF 4V, C_Polarized) is connected on the +5V rail. It is rated below the rail voltage and is a safety/reliability defect. Use a rating of 10V or more (6.3V minimum, 10V recommended).",
+   "status": "FAIL",
+   "evidence": [
+    {
+     "file": "design.json",
+     "locator": "components C1",
+     "quote": "\"value\": \"470uF 4V\"",
+     "valid": true,
+     "why": "ok"
+    }
+   ]
+  },
+  {
+   "key": "extra-1",
+   "text": "warning: No design-intent context directory was provided, so the mains voltage and load were assumed to be 230 VAC with a relay load up to 16 A. The varistor rating and the unfused load path depend on this assumption.",
+   "status": "WARN",
+   "evidence": [
+    {
+     "file": "design.json",
+     "locator": "components K1 Description",
+     "quote": "Relay SPST-NO 16 A 250 VAC, 5 V coil, high inrush current (HR)",
+     "valid": true,
+     "why": "ok"
+    }
+   ]
+  }
+ ]
+}

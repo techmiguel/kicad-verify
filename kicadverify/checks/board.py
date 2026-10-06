@@ -1,0 +1,251 @@
+"""Board checks from a direct parse of .kicad_pcb (independent of kicad-cli and of any MCP server
+that generated the design)."""
+import math
+import re
+from pathlib import Path
+
+from .. import sexp
+from ..config import DATA
+from ..report import FAIL, PASS, SKIP, WARN, Result
+from ..waivers import vkey
+
+POWER_RE = re.compile(r"(^|/)(\+|V)(\d|CC|DD|BUS|IN|BAT|SYS)|GND|VBAT|VMOT|VSYS", re.I)
+NO_MODEL_OK = ("TestPoint", "MountingHole", "Fiducial", "NetTie", "Logo", "Symbol")
+
+
+def _net(node):
+    net = sexp.child(node, "net")
+    return net[-1] if net and len(net) > 1 else None
+
+
+def _xy(node, name):
+    c = sexp.child(node, name)
+    return (sexp.num(c[1]), sexp.num(c[2])) if c and len(c) > 2 else None
+
+
+def _drill(node):
+    dr = sexp.child(node, "drill")
+    if not dr or len(dr) < 2:
+        return None
+    vals = [sexp.num(v) for v in dr[1:] if not isinstance(v, list) and v != "oval"]
+    if not vals:
+        return None
+    return (vals[0], vals[1] if len(vals) > 1 and dr[1] == "oval" else vals[0])
+
+
+def load(pcb):
+    tree = sexp.parse(Path(pcb).read_text(encoding="utf-8"))
+    fps = []
+    for fp in sexp.children(tree, "footprint"):
+        at = sexp.child(fp, "at") or ["at", "0", "0"]
+        fx, fy = sexp.num(at[1]), sexp.num(at[2])
+        rot = sexp.num(at[3]) if len(at) > 3 else 0.0
+        a = math.radians(rot)
+        pads = []
+        for p in sexp.children(fp, "pad"):
+            pat = sexp.child(p, "at") or ["at", "0", "0"]
+            px, py = sexp.num(pat[1]), sexp.num(pat[2])
+            d = _drill(p)
+            pads.append({
+                "number": p[1] if len(p) > 1 else "", "type": p[2] if len(p) > 2 else "",
+                "net": _net(p),
+                "x": fx + px * math.cos(a) + py * math.sin(a),
+                "y": fy - px * math.sin(a) + py * math.cos(a),
+                "drill": d[0] if d else None, "drill2": d[1] if d else None,
+                "size": _xy(p, "size") or (0.0, 0.0),
+                "layers": [l for l in (sexp.child(p, "layers") or [])[1:]],
+            })
+        attr = [x for x in (sexp.child(fp, "attr") or [])[1:]]
+        fps.append({
+            "name": fp[1] if len(fp) > 1 else "", "ref": sexp.prop(fp, "Reference") or "?",
+            "value": sexp.prop(fp, "Value") or "", "layer": (sexp.child(fp, "layer") or ["", "F.Cu"])[1],
+            "x": fx, "y": fy, "rot": rot, "attr": attr, "dnp": "dnp" in attr,
+            "models": [m[1] for m in sexp.children(fp, "model") if len(m) > 1], "pads": pads,
+        })
+    tracks = []
+    for kind in ("segment", "arc"):
+        for s in sexp.children(tree, kind):
+            w = sexp.child(s, "width")
+            tracks.append({"net": _net(s), "width": sexp.num(w[1]) if w else 0.0,
+                           "layer": (sexp.child(s, "layer") or ["", ""])[1],
+                           "start": _xy(s, "start"), "end": _xy(s, "end")})
+    vias = []
+    for v in sexp.children(tree, "via"):
+        d = _drill(v)
+        size = sexp.child(v, "size")
+        vias.append({"net": _net(v), "pos": _xy(v, "at"), "drill": d[0] if d else None,
+                     "size": sexp.num(size[1]) if size else 0.0})
+    zones = [{"net": (sexp.child(z, "net_name") or [None, None])[1] or _net(z),
+              "layers": [l for l in (sexp.child(z, "layers") or sexp.child(z, "layer") or [])[1:]]}
+             for z in sexp.children(tree, "zone")]
+    edge = []
+    for kind in ("gr_line", "gr_arc", "gr_rect", "gr_circle", "gr_poly"):
+        for g in sexp.children(tree, kind):
+            if (sexp.child(g, "layer") or ["", ""])[1] == "Edge.Cuts":
+                for pt in ("start", "end", "mid", "center"):
+                    xy = _xy(g, pt)
+                    if xy:
+                        edge.append(xy)
+                pts = sexp.child(g, "pts")
+                if pts:
+                    edge += [(sexp.num(p[1]), sexp.num(p[2])) for p in sexp.children(pts, "xy")]
+    setup = sexp.child(tree, "setup") or []
+    layers = sexp.child(tree, "layers") or []
+    general = sexp.child(tree, "general") or []
+    th = sexp.child(general, "thickness")
+    return {"footprints": fps, "tracks": tracks, "vias": vias, "zones": zones,
+            "aux_origin": _xy(setup, "aux_axis_origin") or (0.0, 0.0),
+            "grid_origin": _xy(setup, "grid_origin") or (0.0, 0.0),
+            "copper_layers": [l[1] for l in layers[1:] if isinstance(l, list) and len(l) > 2
+                              and str(l[1]).endswith(".Cu")],
+            "thickness": sexp.num(th[1], 1.6) if th else 1.6,
+            "outline_bbox": ([min(p[0] for p in edge), min(p[1] for p in edge),
+                              max(p[0] for p in edge), max(p[1] for p in edge)] if edge else None)}
+
+
+def mounting_holes(board, params):
+    refs = set(params.get("mounting_refs") or [])
+    out = []
+    for fp in board["footprints"]:
+        if fp["ref"] in refs or "mountinghole" in fp["name"].lower():
+            holes = [p for p in fp["pads"] if p["drill"]]
+            if holes:
+                h = max(holes, key=lambda p: p["drill"])
+                out.append({"ref": fp["ref"], "x": h["x"], "y": h["y"], "drill": h["drill"], "net": h["net"]})
+    return out
+
+
+def _seg_dist(p, a, b):
+    dx, dy = b[0] - a[0], b[1] - a[1]
+    L = dx * dx + dy * dy
+    t = 0 if L == 0 else max(0, min(1, ((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / L))
+    return math.hypot(p[0] - a[0] - t * dx, p[1] - a[1] - t * dy)
+
+
+def approved_footprints(root):
+    names = set()
+    for f in [DATA / "approved_footprints.txt", Path(root) / "verification" / "pcb" / "approved_footprints.txt"]:
+        if f.exists():
+            for line in f.read_text(encoding="utf-8").splitlines():
+                line = line.split("#")[0].strip()
+                if line:
+                    names.add(line)
+    return names
+
+
+def _norm(n):
+    return (n or "").lstrip("/").upper()
+
+
+def run(board, label, proj):
+    root, params, pins = proj["root"], proj["params"], proj["pins"]
+    res = []
+
+    approved = approved_footprints(root)
+    used = sorted({fp["name"] for fp in board["footprints"]})
+    if not approved:
+        res.append(Result("PCB-FOOT-001", WARN,
+                          f"{label}: no approved-footprint list; {len(used)} footprints awaiting approval "
+                          "(add them to verification/pcb/approved_footprints.txt once checked against the datasheet)",
+                          violations=[{"key": vkey("foot", n), "text": n} for n in used]))
+    else:
+        bad = [n for n in used if n not in approved]
+        res.append(Result("PCB-FOOT-001", FAIL if bad else PASS, f"{label}: {len(bad)} footprints not approved",
+                          violations=[{"key": vkey("foot", n), "text": n} for n in bad]))
+
+    nomodel = [fp for fp in board["footprints"] if not fp["models"] and "board_only" not in fp["attr"]
+               and not fp["name"].split(":")[-1].startswith(NO_MODEL_OK)]
+    res.append(Result("PCB-MODEL-001", WARN if nomodel else PASS,
+                      f"{label}: {len(nomodel)} footprints without a 3D model (missing from the board STEP, "
+                      "so enclosure fit cannot be checked for them)",
+                      violations=[{"key": vkey("model", fp["ref"]), "text": f"{fp['ref']} ({fp['name']})"}
+                                  for fp in nomodel]))
+
+    nonet = [(fp["ref"], p["number"]) for fp in board["footprints"] for p in fp["pads"]
+             if p["type"] in ("smd", "thru_hole") and not p["net"] and p["number"]]
+    res.append(Result("PCB-PADNET-001", WARN if nonet else PASS,
+                      f"{label}: {len(nonet)} pads without a net (fine only if the pin is NC)",
+                      violations=[{"key": vkey("padnet", r, n), "text": f"{r}.{n}"} for r, n in nonet]))
+
+    minw = float(params.get("min_power_width_mm", 0.25))
+    extra = [re.compile(x, re.I) for x in params.get("power_net_patterns") or []]
+    thin = {}
+    for t in board["tracks"]:
+        n = t["net"] or ""
+        if (POWER_RE.search(n) or any(r.search(n) for r in extra)) and t["width"] < minw - 1e-6:
+            thin[n] = min(t["width"], thin.get(n, 99))
+    res.append(Result("PCB-WIDTH-001", FAIL if thin else PASS,
+                      f"{label}: {len(thin)} power nets with tracks narrower than {minw} mm",
+                      violations=[{"key": vkey("width", n), "text": f"{n}: {w} mm"} for n, w in thin.items()]))
+
+    if not pins:
+        res.append(Result("PCB-PINS-001", SKIP, f"{label}: no verification/pcb/pins.yaml"))
+    else:
+        byref = {fp["ref"]: fp for fp in board["footprints"]}
+        bad = []
+        for ref, table in pins.items():
+            fp = byref.get(ref)
+            if not fp:
+                bad.append((f"{ref}: not on the board", ref))
+                continue
+            padnet = {}
+            for p in fp["pads"]:
+                padnet.setdefault(p["number"], p["net"])
+            for pin, expected in (table or {}).items():
+                got = padnet.get(str(pin))
+                exp = str(expected)
+                pat = exp[1:] if exp.startswith("~") else re.escape(_norm(exp))
+                ok = got is not None and re.fullmatch(pat, _norm(got) if not exp.startswith("~") else got, re.I)
+                if not ok:
+                    bad.append((f"{ref}.{pin}: expected {expected}, found {got}", f"{ref}.{pin}"))
+        res.append(Result("PCB-PINS-001", FAIL if bad else PASS, f"{label}: {len(bad)} pins differ from pins.yaml",
+                          violations=[{"key": vkey("pins", k), "text": t} for t, k in bad]))
+
+    mh = params.get("mounting_holes")
+    if not mh:
+        res.append(Result("PCB-HOLE-001", SKIP, f"{label}: no mounting_holes in requirements.yaml"))
+    else:
+        tol = float(mh.get("tol_mm", 0.1))
+        holes = [p for fp in board["footprints"] for p in fp["pads"] if p["drill"]]
+        bad = []
+        for ex in mh.get("expected", []):
+            near = min(holes, key=lambda h: math.hypot(h["x"] - ex[0], h["y"] - ex[1]), default=None)
+            if near is None or math.hypot(near["x"] - ex[0], near["y"] - ex[1]) > tol:
+                bad.append(f"{ex}: no hole within ±{tol} mm")
+            elif mh.get("drill_mm") and abs((near["drill"] or 0) - mh["drill_mm"]) > tol:
+                bad.append(f"{ex}: drill {near['drill']} mm, expected {mh['drill_mm']} mm")
+        res.append(Result("PCB-HOLE-001", FAIL if bad else PASS, f"{label}: {len(bad)} mounting holes out of tolerance",
+                          violations=[{"key": vkey("hole", b), "text": b} for b in bad]))
+
+    mhs = mounting_holes(board, params)
+    extra_r = float(params.get("hole_keepout_extra_mm", 1.4))
+    if not mhs:
+        res.append(Result("PCB-KEEPOUT-001", SKIP, f"{label}: no mounting holes found"))
+    else:
+        bad = []
+        for h in mhs:
+            rk = h["drill"] / 2 + extra_r
+            c = (h["x"], h["y"])
+            for t in board["tracks"]:
+                if t["start"] and t["end"] and (t["net"] != h["net"] or not h["net"]):
+                    if _seg_dist(c, t["start"], t["end"]) - t["width"] / 2 < rk:
+                        bad.append(f"{h['ref']}: track {t['net']} ({t['layer']}) inside the Ø{2 * rk:.1f} mm keep-out")
+            for v in board["vias"]:
+                if v["pos"] and (v["net"] != h["net"] or not h["net"]):
+                    if math.hypot(v["pos"][0] - c[0], v["pos"][1] - c[1]) - v["size"] / 2 < rk:
+                        bad.append(f"{h['ref']}: via {v['net']} inside the Ø{2 * rk:.1f} mm keep-out")
+            for fp in board["footprints"]:
+                if fp["ref"] == h["ref"]:
+                    continue
+                for p in fp["pads"]:
+                    if p["net"] and p["net"] == h["net"]:
+                        continue
+                    if math.hypot(p["x"] - c[0], p["y"] - c[1]) - max(p["size"]) / 2 < rk:
+                        bad.append(f"{h['ref']}: pad {fp['ref']}.{p['number']} inside the Ø{2 * rk:.1f} mm keep-out")
+        bad = list(dict.fromkeys(bad))
+        res.append(Result("PCB-KEEPOUT-001", FAIL if bad else PASS,
+                          f"{label}: {len(bad)} items inside the mounting-hole keep-out (washer/screw head)",
+                          violations=[{"key": vkey("keepout", b), "text": b} for b in bad]))
+    for r in res:
+        r.evidence = r.evidence or [label]
+    return res

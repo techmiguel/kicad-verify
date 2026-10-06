@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "kicad-verify"
+version = "0.1.0"
+description = "Verification gate for KiCad projects: ERC/DRC, parity, circuit and fabrication-output checks, an evidence-validated independent reviewer and Claude Code hooks"
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.10"
+dependencies = ["pyyaml>=6", "pypdf[crypto]>=4", "fonttools>=4"]
+keywords = ["kicad", "pcb", "verification", "erc", "drc", "design-review", "claude-code"]
+classifiers = ["Programming Language :: Python :: 3", "Topic :: Scientific/Engineering :: Electronic Design Automation (EDA)"]
+
+[project.optional-dependencies]
+test = ["pytest>=7"]
+
+[project.scripts]
+kicadverify = "kicadverify.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/techmiguel/kicad-verify"
+
+[tool.setuptools.packages.find]
+include = ["kicadverify*"]
+
+[tool.setuptools.package-data]
+kicadverify = ["data/*", "data/templates/*", "data/claude/skills/*/*"]

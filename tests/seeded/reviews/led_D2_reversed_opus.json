@@ -1,0 +1,278 @@
+{
+ "tool": "kicad-verify",
+ "kind": "review",
+ "time": "2026-10-06T19:56:46+00:00",
+ "design_hash": "f556390a46e8e5c9350747a4966616c4c13982b5",
+ "reviewer": {
+  "model": "opus",
+  "duration_s": 152.8,
+  "returncode": 0,
+  "cost_usd": 0.5732822,
+  "num_turns": 14,
+  "is_error": false,
+  "models": [
+   "claude-opus-5-5"
+  ]
+ },
+ "overall": "FAIL",
+ "requirements": [
+  {
+   "id": "MOD-PINOUT-001",
+   "model_verdict": "WARN",
+   "status": "WARN",
+   "summary": "U1 AMS1117-3.3 pinout matches the datasheet (1=GND/ADJ, 2=VOUT, 3=VIN) and the ESP-12F supply/GND/EN/RST/strap nets look right. I could not check ESP-12F, SS8050, HLK-PM01 or G5RL against their own datasheets: there is no ESP-12F/SS8050/HLK-PM01 datasheet, and the Omron PDF failed text extraction. Separately, the relay LED D2 is wired backwards: its cathode is on /RELAY and its anode goes through R8 to GND (see extra findings).",
+   "evidence_ok": 4,
+   "evidence_rejected": [],
+   "evidence": [
+    {
+     "file": "datasheets_text/ams1117.txt",
+     "locator": "page 1, PIN CONNECTIONS",
+     "quote": "1- Ground/Adjust",
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "file": "design.json",
+     "locator": "pin_tables.U1",
+     "quote": "\"name\": \"VI\",\n     \"type\": \"power_in\",\n     \"net\": \"+5V\"",
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "file": "design.json",
+     "locator": "nets./RELAY",
+     "quote": "\"D2.1(K_1)\"",
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "file": "datasheets.json",
+     "locator": "local_files omron_g5rl.pdf",
+     "quote": "\"text_error\": \"cryptography>=3.1 is required for AES algorithm\"",
+     "valid": true,
+     "why": "ok"
+    }
+   ]
+  },
+  {
+   "id": "MOD-STRAP-001",
+   "model_verdict": "PASS",
+   "status": "PASS",
+   "summary": "The start-up levels are correct. EN (R1) and RST (R2) are pulled up to 3V3 with 10k and have caps C7/C8 to GND. GPIO0 is pulled up by R3, with SW1 to ground it for download. GPIO2 is pulled up by R4. GPIO15 is pulled down by R5 to GND. This matches the Espressif strapping table for flash boot and the CHIP_EN must-not-float rule.",
+   "evidence_ok": 5,
+   "evidence_rejected": [],
+   "evidence": [
+    {
+     "file": "datasheets_text/esp-wroom-02_datasheet_en.txt",
+     "locator": "page 9, IO15",
+     "quote": "GPIO15; MTDO; HSPICS; UART0_RTS \nPull down.",
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "file": "datasheets_text/esp-wroom-02_datasheet_en.txt",
+     "locator": "page 9, IO0",
+     "quote": "•Flash boot: ﬂoating or pull up.",
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "file": "datasheets_text/esp8266_hardware_design_guidelines_en.txt",
+     "locator": "page 13",
+     "quote": "CHIP_EN cannot be left ﬂoating.",
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "file": "design.json",
+     "locator": "nets./GPIO15",
+     "quote": "\"R5.1\",\n    \"U2.16(GPIO15_16)\"",
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "file": "design.json",
+     "locator": "nets./EN",
+     "quote": "\"C7.1\",\n    \"R1.2\",\n    \"U2.3(EN_3)\"",
+     "valid": true,
+     "why": "ok"
+    }
+   ]
+  },
+  {
+   "id": "MOD-POWER-001",
+   "model_verdict": "NOT_VERIFIABLE",
+   "status": "WARN",
+   "summary": "AMS1117 checks out: its 5 V input is well under the 15 V absolute maximum, and about 1.7 V x ~0.3 A is far below the 1.2 W SOT-223 limit. I could not confirm HLK-PM01 output capacity or the G5RL coil current, because there is no HLK-PM01 datasheet and the Omron PDF text extraction failed.",
+   "evidence_ok": 3,
+   "evidence_rejected": [],
+   "evidence": [
+    {
+     "file": "datasheets_text/ams1117.txt",
+     "locator": "page 2, ABSOLUTE MAXIMUM RATINGS",
+     "quote": "Input Voltage               15V",
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "file": "datasheets_text/ams1117.txt",
+     "locator": "page 3, Note 2",
+     "quote": "maximum power dissipation of 1.2 W for SOT-223",
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "file": "datasheets.json",
+     "locator": "local_files omron_g5rl.pdf",
+     "quote": "\"text_error\": \"cryptography>=3.1 is required for AES algorithm\"",
+     "valid": true,
+     "why": "ok"
+    }
+   ]
+  },
+  {
+   "id": "MOD-PROT-001",
+   "model_verdict": "WARN",
+   "status": "WARN",
+   "summary": "F1 (T500mA) and RV1 protect only the HLK-PM01 branch (/L_F). The relay load path J1.3 -> K1.13/14 -> J1.2 comes straight off /L_IN with no fuse, so the switched load (rated up to 16 A) relies entirely on an upstream breaker. RV1 is a 07D221K (220 V varistor voltage). Parts of this class are normally rated for only about 140 VAC continuous, so it would be overstressed on 230 VAC mains. The fuse is 250 V, which suggests a 230 V application. I have no varistor datasheet to confirm the rating. There is no ESD protection on the PROG header.",
+   "evidence_ok": 3,
+   "evidence_rejected": [],
+   "evidence": [
+    {
+     "file": "design.json",
+     "locator": "nets./L_IN",
+     "quote": "\"F1.1\",\n    \"J1.3(Pin_3_3)\",\n    \"K1.13\"",
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "file": "design.json",
+     "locator": "components RV1",
+     "quote": "\"value\": \"07D221K\"",
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "file": "design.json",
+     "locator": "components F1",
+     "quote": "\"value\": \"T500mA 250V\"",
+     "valid": true,
+     "why": "ok"
+    }
+   ]
+  },
+  {
+   "id": "MOD-VALUE-001",
+   "model_verdict": "FAIL",
+   "status": "FAIL",
+   "summary": "D2 (relay LED) never lights: its cathode is on GPIO5/RELAY and its anode goes through R8 1k to GND, so it is always reverse-biased. The deterministic LED check also computes -2.0 mA. The other values look reasonable: R6 1k / R7 10k base drive for Q1, D1 flyback across the coil, and R9 220 ohm for the blue LED at 3.3 V. Capacitor voltage ratings for C3, C5–C9 are not stated in their values.",
+   "evidence_ok": 3,
+   "evidence_rejected": [],
+   "evidence": [
+    {
+     "file": "design.json",
+     "locator": "nets.Net-(D2-A)",
+     "quote": "\"D2.2(A_2)\",\n    \"R8.1\"",
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "file": "verify_report.json",
+     "locator": "CIR-LED-001",
+     "quote": "D2: -2.0 mA through R8 (1k) from 0.0 V, Vf≈2.0 V < 0.3 mA (too dim or not lit)",
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "file": "verify_report.json",
+     "locator": "CIR-POL-001",
+     "quote": "LED anode on Net-(D2-A) resolves to GND - reversed, it will never light",
+     "valid": true,
+     "why": "ok"
+    }
+   ]
+  },
+  {
+   "id": "MOD-FOOT-001",
+   "model_verdict": "WARN",
+   "status": "WARN",
+   "summary": "K1 is ordered as a G5RL-1A-E-HR, but its footprint is Relay_SPST_Omron_G2RL-1A-E. I could not confirm the pad pattern because the G5RL datasheet text is unavailable. The approved-footprint list is empty, so none of the 17 footprints have been confirmed against datasheets. On the PCB, D2's pads carry nets that disagree with the schematic and short against the routed tracks.",
+   "evidence_ok": 3,
+   "evidence_rejected": [],
+   "evidence": [
+    {
+     "file": "design.json",
+     "locator": "components K1",
+     "quote": "\"footprint\": \"Relay_THT:Relay_SPST_Omron_G2RL-1A-E\"",
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "file": "design.json",
+     "locator": "components K1",
+     "quote": "\"value\": \"G5RL-1A-E-HR DC5\"",
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "file": "verify_report.json",
+     "locator": "PCB-PARITY-001",
+     "quote": "D2.2: net Net-(D2-K) on PCB vs Net-(D2-A) in schematic",
+     "valid": true,
+     "why": "ok"
+    }
+   ]
+  }
+ ],
+ "extra_findings": [
+  {
+   "key": "extra-0",
+   "text": "error: PCB around D2 is not fabricable: the schematic and PCB disagree on D2's pad nets, and the existing tracks short /RELAY to Net-(D2-K) across D2's pads (shorting_items and solder-mask bridges). Fix D2's polarity in the schematic (anode on /RELAY, cathode to R8), update the PCB and re-route.",
+   "status": "FAIL",
+   "evidence": [
+    {
+     "file": "verify_report.json",
+     "locator": "PCB-DRC-001",
+     "quote": "Items shorting two nets (nets /RELAY and Net-(D2-K)) (Pad 1 [/RELAY] of D2 on F.Cu",
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "file": "verify_report.json",
+     "locator": "PCB-PARITY-001",
+     "quote": "R8.1: net Net-(D2-K) on PCB vs Net-(D2-A) in schematic",
+     "valid": true,
+     "why": "ok"
+    }
+   ]
+  },
+  {
+   "key": "extra-1",
+   "text": "warning: The PROG header J3 brings out +5V instead of 3V3. If a programmer powers the board through it, current flows backwards into the HLK-PM01 output. Also, a 5 V-level USB-UART would drive the 3.3 V ESP RXD directly.",
+   "status": "WARN",
+   "evidence": [
+    {
+     "file": "design.json",
+     "locator": "pin_tables.J3 pin 2",
+     "quote": "\"name\": \"Pin_2\",\n     \"type\": \"passive\",\n     \"net\": \"+5V\"",
+     "valid": true,
+     "why": "ok"
+    }
+   ]
+  },
+  {
+   "key": "extra-2",
+   "text": "warning: U2 (ESP-12F antenna) sits 0.4 mm from the board edge. The antenna keep-out clearance still needs checking.",
+   "status": "WARN",
+   "evidence": [
+    {
+     "file": "verify_report.json",
+     "locator": "KH-PM-002",
+     "quote": "U2 is 0.4mm from board edge (RF module antenna at board edge",
+     "valid": true,
+     "why": "ok"
+    }
+   ]
+  }
+ ]
+}

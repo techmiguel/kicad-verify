@@ -1,0 +1,261 @@
+{
+ "tool": "kicad-verify",
+ "kind": "review",
+ "time": "2026-10-06T19:52:35+00:00",
+ "design_hash": "493b7e80bc0f7d7bca257f8f4d363875993a9253",
+ "reviewer": {
+  "model": "opus",
+  "duration_s": 166.1,
+  "returncode": 0,
+  "cost_usd": 0.8877500000000002,
+  "num_turns": 14,
+  "is_error": false,
+  "models": [
+   "claude-opus-5-5"
+  ]
+ },
+ "overall": "WARN",
+ "requirements": [
+  {
+   "id": "MOD-PINOUT-001",
+   "model_verdict": "WARN",
+   "status": "WARN",
+   "summary": "AMS1117 (U1) pinout matches the datasheet: pin 1 GND, pin 2 VO, pin 3 VI. The ESP-12F (U2) pin table matches the usual ESP-12F map (1 RST, 3 EN, 8 VCC, 15 GND, 16 GPIO15, 17 GPIO2, 18 GPIO0, 21 RXD, 22 TXD), but no ESP-12F datasheet is in the bundle. The only module datasheet is for the ESP-WROOM-02, a different module. The Omron G5RL datasheet could not be extracted, so K1 pins 13/14/A1/A2 cannot be checked. There is no HLK-PM01 datasheet either. K1 has two pads each for 13 and 14 on the PCB, both on the right nets.",
+   "evidence_ok": 4,
+   "evidence_rejected": [],
+   "evidence": [
+    {
+     "file": "datasheets_text/ams1117.txt",
+     "locator": "page 1, PIN CONNECTIONS",
+     "quote": "1- Ground/Adjust ",
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "file": "design.json",
+     "locator": "pin_tables.U1 pin 3",
+     "quote": "\"name\": \"VI\"",
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "file": "datasheets.json",
+     "locator": "local_files omron_g5rl.pdf",
+     "quote": "\"text_error\": \"cryptography>=3.1 is required for AES algorithm\"",
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "file": "rele-esp12f.kicad_pcb",
+     "locator": "K1 pad 13 at 7.5 20",
+     "quote": "(at 7.5 20 270)",
+     "valid": true,
+     "why": "ok"
+    }
+   ]
+  },
+  {
+   "id": "MOD-STRAP-001",
+   "model_verdict": "PASS",
+   "status": "PASS",
+   "summary": "The strapping pins are set for normal boot. GPIO15 is pulled to GND by R5 (10k), GPIO0 is pulled up by R3 to 3V3 and GPIO2 by R4. EN is pulled up by R1 with C7 to GND, and RST by R2 with C8. TXD has no external pull-down. Minor point: EN and RST use the same 10k/100nF RC. The datasheet asks for CHIP_EN to rise ≥0.1 ms after EXT_RSTB, and identical RCs give no guaranteed margin.",
+   "evidence_ok": 3,
+   "evidence_rejected": [
+    "design.json: quote shorter than 8 characters"
+   ],
+   "evidence": [
+    {
+     "file": "datasheets_text/esp8266_hardware_design_guidelines_en.txt",
+     "locator": "page 16",
+     "quote": "GPIO15, the strapping pin of ESP8266EX, needs to be at low-voltage level when ",
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "file": "datasheets_text/0a-esp8266ex_datasheet_en.txt",
+     "locator": "page 11",
+     "quote": "•U0TXD should not be pulled externally to a low logic level during the powering-up.",
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "file": "datasheets_text/0a-esp8266ex_datasheet_en.txt",
+     "locator": "page 24, Table 5-2",
+     "quote": "t5 CHIP_EN goes high after EXT_RSTB 0.1 - ms",
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "file": "design.json",
+     "locator": "nets./GPIO15",
+     "quote": "\"R5.1\"",
+     "valid": false,
+     "why": "quote shorter than 8 characters"
+    }
+   ]
+  },
+  {
+   "id": "MOD-POWER-001",
+   "model_verdict": "WARN",
+   "status": "WARN",
+   "summary": "Voltages are within ratings. The AMS1117 sees 5 V against a 15 V absolute maximum, and the ESP-12F gets 3.3 V within its 2.5–3.6 V working range. Load capacity cannot be confirmed: there is no HLK-PM01 datasheet (output current) and the G5RL datasheet is unreadable (coil current). J3 pin 2 also connects an external 5 V supply directly to the HLK-PM01 output rail, which back-feeds the module. The README documents this as a mains-off-only operation.",
+   "evidence_ok": 3,
+   "evidence_rejected": [],
+   "evidence": [
+    {
+     "file": "datasheets_text/ams1117.txt",
+     "locator": "page 1, ABSOLUTE MAXIMUM RATINGS",
+     "quote": "Input Voltage               15V",
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "file": "datasheets_text/0a-esp8266ex_datasheet_en.txt",
+     "locator": "page 24, Table 5-1",
+     "quote": "Working Voltage Value - 2.5 3.3 3.6 V",
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "file": "design.json",
+     "locator": "nets.+5V",
+     "quote": "\"J3.2(Pin_2_2)\"",
+     "valid": true,
+     "why": "ok"
+    }
+   ]
+  },
+  {
+   "id": "MOD-PROT-001",
+   "model_verdict": "WARN",
+   "status": "WARN",
+   "summary": "F1 (T500mA) and RV1 (07D221K, suited to 110–120 VAC) protect only the HLK-PM01 branch. L_IN also feeds relay contact K1.13 directly, so the switched load path (up to 10 A) has no fuse on the board and depends on the building breaker. There is no ESD protection on the J3 programming header. The fuse and varistor datasheets are missing, so their ratings cannot be checked.",
+   "evidence_ok": 2,
+   "evidence_rejected": [
+    "design.json: quote shorter than 8 characters"
+   ],
+   "evidence": [
+    {
+     "file": "design.json",
+     "locator": "nets./L_IN",
+     "quote": "\"K1.13\"",
+     "valid": false,
+     "why": "quote shorter than 8 characters"
+    },
+    {
+     "file": "design.json",
+     "locator": "F1 value",
+     "quote": "\"value\": \"T500mA 250V\"",
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "file": "README.md",
+     "locator": "line 3",
+     "quote": "for 110–120 VAC mains.",
+     "valid": true,
+     "why": "ok"
+    }
+   ]
+  },
+  {
+   "id": "MOD-VALUE-001",
+   "model_verdict": "WARN",
+   "status": "WARN",
+   "summary": "Most values are reasonable. Q1 base drive is 1k from 3.3 V with a 10k pull-down. D1 is a correct flyback diode (K on +5V, A on COIL_N). Strapping pull-ups are 10k. One concern: D3 is a blue LED driven from 3.3 V through only 220 Ω. With a typical blue Vf of about 2.8–3.2 V, current is about 0.5–2 mA and very sensitive to Vf, so the LED may be dim. No LED datasheet is available to confirm. Relay coil current versus the SS8050 cannot be checked (G5RL datasheet unreadable).",
+   "evidence_ok": 3,
+   "evidence_rejected": [],
+   "evidence": [
+    {
+     "file": "design.json",
+     "locator": "R9 value",
+     "quote": "\"value\": \"220\"",
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "file": "design.json",
+     "locator": "D3 value",
+     "quote": "\"value\": \"LED WiFi (blue)\"",
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "file": "design.json",
+     "locator": "nets./COIL_N",
+     "quote": "\"D1.2(A_2)\"",
+     "valid": true,
+     "why": "ok"
+    }
+   ]
+  },
+  {
+   "id": "MOD-FOOT-001",
+   "model_verdict": "NOT_VERIFIABLE",
+   "status": "WARN",
+   "summary": "K1 is a G5RL-1A-E-HR but uses the G2RL-1A-E footprint. The G5RL datasheet text could not be extracted, so the hole pattern cannot be checked against it; the only source for compatibility is the project's own CHANGELOG. No datasheets are available for the HLK-PM01, the ESP-12F (placed on the ESP-12E footprint), the Littelfuse 395 fuse versus LCSC C2762401, or J3 (2x03 footprint, LCSC C65114). The AMS1117 SOT-223 pin order matches the TabPin2 footprint.",
+   "evidence_ok": 2,
+   "evidence_rejected": [],
+   "evidence": [
+    {
+     "file": "design.json",
+     "locator": "K1 footprint",
+     "quote": "\"footprint\": \"Relay_THT:Relay_SPST_Omron_G2RL-1A-E\"",
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "file": "datasheets.json",
+     "locator": "omron_g5rl.pdf",
+     "quote": "\"text_error\": \"cryptography>=3.1 is required for AES algorithm\"",
+     "valid": true,
+     "why": "ok"
+    }
+   ]
+  }
+ ],
+ "extra_findings": [
+  {
+   "key": "extra-0",
+   "text": "warning: The datasheet set does not match the BOM. It includes the ESP-WROOM-02 datasheet, but the board uses an ESP-12F, and there is no ESP-12F datasheet, so module pin and footprint checks rely on the library symbol alone.",
+   "status": "WARN",
+   "evidence": [
+    {
+     "file": "datasheets.json",
+     "locator": "local_files",
+     "quote": "\"text_file\": \"datasheets_text/esp-wroom-02_datasheet_en.txt\"",
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "file": "design.json",
+     "locator": "U2",
+     "quote": "\"symbol\": \"RF_Module:ESP-12F\"",
+     "valid": true,
+     "why": "ok"
+    }
+   ]
+  },
+  {
+   "key": "extra-1",
+   "text": "warning: The relay load path from L_IN to L_OUT through K1 has no fuse on the board. F1 protects only the PS1 supply input, so a load fault up to the 10 A rating is protected only by upstream wiring protection.",
+   "status": "WARN",
+   "evidence": [
+    {
+     "file": "design.json",
+     "locator": "nets./L_F",
+     "quote": "\"PS1.1(AC/L_1)\"",
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "file": "design.json",
+     "locator": "nets./L_OUT",
+     "quote": "\"K1.14\"",
+     "valid": false,
+     "why": "quote shorter than 8 characters"
+    }
+   ]
+  }
+ ]
+}

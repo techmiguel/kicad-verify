@@ -1,0 +1,234 @@
+{
+ "tool": "kicad-verify",
+ "kind": "review",
+ "time": "2026-10-06T20:13:53+00:00",
+ "design_hash": "94fda6e6ae0ce96bbbfc2e80e198b534e3a2f2be",
+ "reviewer": {
+  "model": "sonnet",
+  "duration_s": 59.0,
+  "returncode": 0,
+  "cost_usd": 0.24265440000000005,
+  "num_turns": 9,
+  "is_error": false,
+  "models": [
+   "claude-sonnet-5-5"
+  ]
+ },
+ "overall": "FAIL",
+ "requirements": [
+  {
+   "id": "MOD-PINOUT-001",
+   "model_verdict": "PASS",
+   "status": "PASS",
+   "summary": "U2 (ESP-12F) pin table matches the ESP-WROOM-02/ESP8266 pinout: 22 pins, GPIO15 pull-down, GPIO0/GPIO2 pull-ups, EN and RST pulled up. U1 AMS1117 pins GND/VO/VI = 1/2/3 match the datasheet. Q1 SOT-23 B/E/C = 1/2/3 matches the usual SS8050 pinout, but no SS8050 datasheet is available to confirm it. The Omron relay datasheet could not be text-extracted, so K1 pin numbers are not checked.",
+   "evidence_ok": 2,
+   "evidence_rejected": [
+    "datasheets_text/ams1117.txt: quote shorter than 8 characters"
+   ],
+   "evidence": [
+    {
+     "file": "datasheets_text/ams1117.txt",
+     "locator": "pinout",
+     "quote": "3- VIN",
+     "valid": false,
+     "why": "quote shorter than 8 characters"
+    },
+    {
+     "file": "datasheets_text/esp-wroom-02_datasheet_en.txt",
+     "locator": "page 9, IO15",
+     "quote": "GPIO15; MTDO; HSPICS; UART0_RTS",
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "file": "design.json",
+     "locator": "U2 pin 16",
+     "quote": "\"name\": \"GPIO15\"",
+     "valid": true,
+     "why": "ok"
+    }
+   ]
+  },
+  {
+   "id": "MOD-STRAP-001",
+   "model_verdict": "PASS",
+   "status": "PASS",
+   "summary": "GPIO15 is pulled down by R5 to GND. GPIO0 is pulled up by R3 with SW1 and J3 to pull it down for UART download. GPIO2 is pulled up by R4. EN is pulled up by R1 and RST by R2. This matches the datasheet requirements for flash boot.",
+   "evidence_ok": 1,
+   "evidence_rejected": [
+    "design.json: quote shorter than 8 characters",
+    "design.json: quote shorter than 8 characters"
+   ],
+   "evidence": [
+    {
+     "file": "datasheets_text/esp-wroom-02_datasheet_en.txt",
+     "locator": "page 9, IO0",
+     "quote": "•Flash boot: ﬂoating or pull up.",
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "file": "design.json",
+     "locator": "nets /GPIO15",
+     "quote": "\"R5.1\"",
+     "valid": false,
+     "why": "quote shorter than 8 characters"
+    },
+    {
+     "file": "design.json",
+     "locator": "nets /GPIO2",
+     "quote": "\"R4.2\"",
+     "valid": false,
+     "why": "quote shorter than 8 characters"
+    }
+   ]
+  },
+  {
+   "id": "MOD-POWER-001",
+   "model_verdict": "PASS",
+   "status": "PASS",
+   "summary": "The +5V rail (HLK-PM01, 3 W class) covers the ~80 mA relay coil, the ESP8266 (about 80 mA average, with peaks) and the AMS1117. 5 V is well below the AMS1117 15 V input maximum. The coil is protected by flyback diode D1. No HLK-PM01 datasheet is present, so its rated output current is taken from the part's known 5 V / 600 mA rating. The J3 +5V pin can back-feed the rail (see extra findings).",
+   "evidence_ok": 2,
+   "evidence_rejected": [],
+   "evidence": [
+    {
+     "file": "datasheets_text/ams1117.txt",
+     "locator": "absolute maximum ratings",
+     "quote": "Input Voltage               15V",
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "file": "design.json",
+     "locator": "nets +5V",
+     "quote": "\"PS1.4(+Vout_4)\"",
+     "valid": true,
+     "why": "ok"
+    }
+   ]
+  },
+  {
+   "id": "MOD-PROT-001",
+   "model_verdict": "FAIL",
+   "status": "FAIL",
+   "summary": "Varistor RV1 is a 07D221K (220 V disc, about 140 VAC continuous rating), but the mains input is rated 250 V (fuse and relay at 250 VAC). No design intent was supplied, so I assumed 230 VAC. At 230 VAC the varistor would conduct continuously and overheat or fail. The fuse (T500mA) suits the HLK-PM01 branch, but the relay load path L_IN to L_OUT is not fused.",
+   "evidence_ok": 2,
+   "evidence_rejected": [],
+   "evidence": [
+    {
+     "file": "design.json",
+     "locator": "RV1",
+     "quote": "\"value\": \"07D221K\"",
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "file": "design.json",
+     "locator": "F1",
+     "quote": "\"value\": \"T500mA 250V\"",
+     "valid": true,
+     "why": "ok"
+    }
+   ]
+  },
+  {
+   "id": "MOD-VALUE-001",
+   "model_verdict": "FAIL",
+   "status": "FAIL",
+   "summary": "R6 is 10 ohm in the Q1 base path, driven directly from ESP GPIO5 at 3.3 V. That gives about 260 mA of base current, which is far above the GPIO limit and the transistor needs (relay coil about 80-90 mA, base current needs roughly 5-10 mA). It would damage the ESP8266 pin. R6 should be about 470 ohm to 1 kohm. The BOM also lists R6 with LCSC C21190, the same code as the 1k part R8, so the value and the BOM part disagree.",
+   "evidence_ok": 3,
+   "evidence_rejected": [],
+   "evidence": [
+    {
+     "file": "verify_report.json",
+     "locator": "CIR-BJT-001",
+     "quote": "Q1: base current 260.0 mA through R6 (10) exceeds 12.0 mA",
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "file": "design.json",
+     "locator": "R6",
+     "quote": "\"value\": \"10\"",
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "file": "design.json",
+     "locator": "R8",
+     "quote": "\"LCSC\": \"C21190\"",
+     "valid": true,
+     "why": "ok"
+    }
+   ]
+  },
+  {
+   "id": "MOD-FOOT-001",
+   "model_verdict": "WARN",
+   "status": "WARN",
+   "summary": "Footprints are plausible for the named parts: SOT-223 for the AMS1117, SOT-23 for the SS8050, 0603 and 0805 passives, the ESP-12E footprint for the ESP-12F, and the HLK-PMxx footprint. Only the AMS1117, ESP and passive footprints could be checked against datasheets here. The relay footprint (G2RL-1A-E) is used for a G5RL-1A-E-HR, and the Omron datasheet text could not be extracted, so that match is unconfirmed. The footprint check reports none of the footprints as approved. The J3 symbol is a 1x06 header but its footprint is 2x03.",
+   "evidence_ok": 2,
+   "evidence_rejected": [],
+   "evidence": [
+    {
+     "file": "design.json",
+     "locator": "K1",
+     "quote": "Relay_THT:Relay_SPST_Omron_G2RL-1A-E",
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "file": "verify_report.json",
+     "locator": "PCB-FOOT-001",
+     "quote": "17 footprints awaiting approval",
+     "valid": true,
+     "why": "ok"
+    }
+   ]
+  }
+ ],
+ "extra_findings": [
+  {
+   "key": "extra-0",
+   "text": "error: R6 is a 10 ohm base resistor on a GPIO-driven NPN. Replace it with about 470 ohm to 1 kohm (~2.6 mA to 5 mA of base current is ample for an ~80-90 mA coil, and the SS8050 has hFE of 100 or more). At 10 ohm the ESP8266 GPIO5 and Q1 are overstressed. [unverified]",
+   "status": "WARN",
+   "evidence": [
+    {
+     "file": "design.json",
+     "locator": "nets Net-(Q1-B)",
+     "quote": "\"R6.2\"",
+     "valid": false,
+     "why": "quote shorter than 8 characters"
+    }
+   ]
+  },
+  {
+   "key": "extra-1",
+   "text": "warning: The J3 programming header exposes +5V on pin 2, tied to the same net as the HLK-PM01 output. Powering from a USB-serial adapter while mains is connected would back-feed or fight the isolated supply. Programming with mains connected is also a shock hazard because the board is mains-referenced via the converter's isolation only.",
+   "status": "WARN",
+   "evidence": [
+    {
+     "file": "design.json",
+     "locator": "J3 pin 2",
+     "quote": "\"net\": \"+5V\"",
+     "valid": true,
+     "why": "ok"
+    }
+   ]
+  },
+  {
+   "key": "extra-2",
+   "text": "warning: No design-intent context directory was present. I assumed 230 VAC mains and a resistive load up to 16 A (relay rating). The mains traces on the L_IN to L_OUT path need checking for width and creepage, which the bundle does not show.",
+   "status": "WARN",
+   "evidence": [
+    {
+     "file": "design.json",
+     "locator": "K1 Description",
+     "quote": "Relay SPST-NO 16 A 250 VAC, 5 V coil, high inrush current (HR)",
+     "valid": true,
+     "why": "ok"
+    }
+   ]
+  }
+ ]
+}

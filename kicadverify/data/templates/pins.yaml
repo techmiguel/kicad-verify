@@ -1,0 +1,3 @@
+# Critical pins copied from the DATASHEET (not from the schematic). Prefix ~ means regex.
+# U1: {1: GND, 2: "+3V3", 3: "+5V"}
+# J1: {1: GND, 2: "~.*VBUS"}

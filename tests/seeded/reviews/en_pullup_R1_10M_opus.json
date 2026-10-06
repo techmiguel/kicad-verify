@@ -1,0 +1,236 @@
+{
+ "tool": "kicad-verify",
+ "kind": "review",
+ "time": "2026-10-06T20:20:24+00:00",
+ "design_hash": "705e40bcbd4d67d5b096614c7885886b40c76aa5",
+ "reviewer": {
+  "model": "opus",
+  "duration_s": 137.4,
+  "returncode": 0,
+  "cost_usd": 0.46907920000000003,
+  "num_turns": 8,
+  "is_error": false,
+  "models": [
+   "claude-opus-5-5"
+  ]
+ },
+ "overall": "FAIL",
+ "requirements": [
+  {
+   "id": "MOD-PINOUT-001",
+   "model_verdict": "WARN",
+   "status": "WARN",
+   "summary": "AMS1117 SOT-223 pinout (1=GND, 2=VOUT, 3=VIN) matches the datasheet and the design. The ESP-12F connections (VCC=+3V3, GND, EN, RST, GPIO0/2/15, TXD/RXD) are consistent with ESP8266EX functions. However, there is no ESP-12F, HLK-PM01 or G5RL datasheet text: the Omron PDF failed to extract and the only module datasheet is for ESP-WROOM-02, which has different pin numbering. So the U2, PS1 and K1 pin numbers cannot be checked against their own datasheets.",
+   "evidence_ok": 3,
+   "evidence_rejected": [],
+   "evidence": [
+    {
+     "file": "datasheets_text/ams1117.txt",
+     "locator": "page 1, PIN CONNECTIONS",
+     "quote": "1- Ground/Adjust",
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "file": "design.json",
+     "locator": "pin_tables.U1",
+     "quote": "\"name\": \"VO\",\n     \"type\": \"power_out\",\n     \"net\": \"+3V3\"",
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "file": "datasheets.json",
+     "locator": "local_files omron_g5rl.pdf",
+     "quote": "cryptography>=3.1 is required for AES algorithm",
+     "valid": true,
+     "why": "ok"
+    }
+   ]
+  },
+  {
+   "id": "MOD-STRAP-001",
+   "model_verdict": "FAIL",
+   "status": "FAIL",
+   "summary": "CHIP_EN (/EN) is pulled up by R1 = 10 MΩ with C7 = 100 nF to GND. That makes RC ≈ 1 s, while the datasheet limits CHIP_EN rise time to 2 ms and recommends R = 10 kΩ / C = 100 nF. A 10 MΩ pull-up is also so weak that leakage and noise can stop EN from reaching a valid high, so start-up is unreliable. The other straps are correct: GPIO15 is pulled down (R5 to GND), and GPIO0 and GPIO2 are pulled up (R3, R4 to +3V3).",
+   "evidence_ok": 5,
+   "evidence_rejected": [],
+   "evidence": [
+    {
+     "file": "design.json",
+     "locator": "components R1",
+     "quote": "\"ref\": \"R1\",\n    \"value\": \"10M\"",
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "file": "design.json",
+     "locator": "nets./EN",
+     "quote": "\"/EN\": [\n    \"C7.1\",\n    \"R1.2\",\n    \"U2.3(EN_3)\"",
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "file": "datasheets_text/0a-esp8266ex_datasheet_en.txt",
+     "locator": "page 25, Table 5-2",
+     "quote": "t4 The rise-time of CHIP_EN 0 2 ms",
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "file": "datasheets_text/esp8266_hardware_design_guidelines_en.txt",
+     "locator": "page 13",
+     "quote": "To avoid level instability on CHIP_EN, an RC delay (R=10 kΩ, ",
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "file": "datasheets_text/esp-wroom-02_datasheet_en.txt",
+     "locator": "page 9",
+     "quote": "GPIO15; MTDO; HSPICS; UART0_RTS \nPull down.",
+     "valid": true,
+     "why": "ok"
+    }
+   ]
+  },
+  {
+   "id": "MOD-POWER-001",
+   "model_verdict": "WARN",
+   "status": "WARN",
+   "summary": "AMS1117-3.3 gets 5 V input, well below its 15 V absolute maximum. Its 1 A rating covers the ESP8266, which needs at least 500 mA supply capability. Dissipation is about (5−3.3)×0.4 A ≈ 0.7 W, which is within the SOT-223 limit. The HLK-PM01 output rating (it must supply the relay coil plus the 3.3 V load) cannot be confirmed because its datasheet is missing.",
+   "evidence_ok": 3,
+   "evidence_rejected": [],
+   "evidence": [
+    {
+     "file": "datasheets_text/ams1117.txt",
+     "locator": "page 2, Absolute Maximum Ratings",
+     "quote": "Input Voltage               15V",
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "file": "datasheets_text/esp-wroom-02_datasheet_en.txt",
+     "locator": "page 8",
+     "quote": "It is recommended the maximum output current a power supply ",
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "file": "design.json",
+     "locator": "components PS1",
+     "quote": "\"value\": \"HLK-PM01\"",
+     "valid": true,
+     "why": "ok"
+    }
+   ]
+  },
+  {
+   "id": "MOD-PROT-001",
+   "model_verdict": "WARN",
+   "status": "WARN",
+   "summary": "The supply path has a T500mA fuse (F1) ahead of PS1 and a varistor (RV1) across L_F/N after the fuse. The relay load path (L_IN→K1→L_OUT) is not fused on the board, so it relies on upstream protection. There is no design-intent context giving the mains voltage. A 07D221K (220 V varistor voltage, about 140 VAC continuous rating) suits 110–120 VAC but would conduct and fail on 230 VAC mains. Assumed mains voltage: unknown.",
+   "evidence_ok": 2,
+   "evidence_rejected": [],
+   "evidence": [
+    {
+     "file": "design.json",
+     "locator": "components RV1",
+     "quote": "\"value\": \"07D221K\"",
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "file": "design.json",
+     "locator": "components F1",
+     "quote": "\"value\": \"T500mA 250V\"",
+     "valid": true,
+     "why": "ok"
+    }
+   ]
+  },
+  {
+   "id": "MOD-VALUE-001",
+   "model_verdict": "FAIL",
+   "status": "FAIL",
+   "summary": "R1 = 10 MΩ is wrong for the EN pull-up; the datasheet recommends 10 kΩ. The other values are reasonable: 10 kΩ pull-ups/pull-down on the strap pins, 1 kΩ base resistor (R6) plus 10 kΩ base-emitter resistor (R7) for Q1, flyback diode D1 across the coil, and 220 Ω (R9) and 1 kΩ (R8) for the LEDs.",
+   "evidence_ok": 2,
+   "evidence_rejected": [],
+   "evidence": [
+    {
+     "file": "design.json",
+     "locator": "components R1",
+     "quote": "\"ref\": \"R1\",\n    \"value\": \"10M\"",
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "file": "datasheets_text/esp-wroom-02_datasheet_en.txt",
+     "locator": "page 18",
+     "quote": "The recommended setting for the RC delay circuit is usually R = 10 kΩ and C ",
+     "valid": true,
+     "why": "ok"
+    }
+   ]
+  },
+  {
+   "id": "MOD-FOOT-001",
+   "model_verdict": "WARN",
+   "status": "WARN",
+   "summary": "Several footprint/part pairings cannot be confirmed. K1 is ordered as an Omron G5RL-1A-E-HR but placed on the G2RL-1A-E footprint; they are believed to be pin-compatible, but the G5RL datasheet text failed to extract. U2 is an ESP-12F on the ESP-12E footprint, which is compatible except for the extra bottom pins. R1's LCSC code C25804 is the same one used for the 10 kΩ resistors, so the BOM is inconsistent. The approved-footprint list is empty (PCB-FOOT-001 WARN).",
+   "evidence_ok": 2,
+   "evidence_rejected": [],
+   "evidence": [
+    {
+     "file": "design.json",
+     "locator": "components K1",
+     "quote": "\"footprint\": \"Relay_THT:Relay_SPST_Omron_G2RL-1A-E\"",
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "file": "verify_report.json",
+     "locator": "PCB-FOOT-001",
+     "quote": "no approved-footprint list; 17 footprints awaiting approval",
+     "valid": true,
+     "why": "ok"
+    }
+   ]
+  }
+ ],
+ "extra_findings": [
+  {
+   "key": "extra-0",
+   "text": "error: BOM mismatch: R1 is valued 10M but carries LCSC C25804, the same supplier code as the 10 kΩ resistors (R2–R5, R7). The value and the ordered part disagree, so assembly will fit whichever part that code is, not what the schematic says.",
+   "status": "FAIL",
+   "evidence": [
+    {
+     "file": "design.json",
+     "locator": "components R1",
+     "quote": "\"value\": \"10M\",\n    \"footprint\": \"Resistor_SMD:R_0603_1608Metric\",\n    \"symbol\": \"Device:R\",\n    \"datasheet\": \"\",\n    \"fields\": {\n     \"LCSC\": \"C25804\"",
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "file": "design.json",
+     "locator": "components R2",
+     "quote": "\"value\": \"10k\",\n    \"footprint\": \"Resistor_SMD:R_0603_1608Metric\",\n    \"symbol\": \"Device:R\",\n    \"datasheet\": \"\",\n    \"fields\": {\n     \"LCSC\": \"C25804\"",
+     "valid": true,
+     "why": "ok"
+    }
+   ]
+  },
+  {
+   "key": "extra-1",
+   "text": "warning: The relay load path from J1 L_IN through K1 to L_OUT has no fuse on the board; only the HLK-PM01 branch is fused by F1. Load overcurrent protection depends on upstream wiring.",
+   "status": "WARN",
+   "evidence": [
+    {
+     "file": "design.json",
+     "locator": "nets./L_IN",
+     "quote": "\"/L_IN\": [\n    \"F1.1\",\n    \"J1.3(Pin_3_3)\",\n    \"K1.13\"",
+     "valid": true,
+     "why": "ok"
+    }
+   ]
+  }
+ ]
+}

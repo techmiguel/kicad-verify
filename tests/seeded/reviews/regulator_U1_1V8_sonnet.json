@@ -1,0 +1,161 @@
+{
+ "tool": "kicad-verify",
+ "kind": "review",
+ "time": "2026-10-06T20:05:54+00:00",
+ "design_hash": "f3abafe16c1b944d2acfe839b110aa76124d42f4",
+ "reviewer": {
+  "model": "sonnet",
+  "duration_s": 32.9,
+  "returncode": 0,
+  "cost_usd": 0.1530112,
+  "num_turns": 7,
+  "is_error": false,
+  "models": [
+   "claude-sonnet-5-5"
+  ]
+ },
+ "overall": "FAIL",
+ "requirements": [
+  {
+   "id": "MOD-PINOUT-001",
+   "model_verdict": "WARN",
+   "status": "WARN",
+   "summary": "Pin maps of U1 (SOT-223 GND/VO/VI), U2, Q1 and PS1 look consistent. J3 uses a 2x03 footprint with a 1x06 symbol, so physical pin order is not the symbol's linear order. Relay datasheet text was unreadable.",
+   "evidence_ok": 1,
+   "evidence_rejected": [],
+   "evidence": [
+    {
+     "file": "verification/pcb/review/bundle/design.json",
+     "locator": "J3 footprint/symbol",
+     "quote": "Connector_PinHeader_2.54mm:PinHeader_2x03_P2.54mm_Vertical",
+     "valid": true,
+     "why": "ok"
+    }
+   ]
+  },
+  {
+   "id": "MOD-STRAP-001",
+   "model_verdict": "PASS",
+   "status": "FAIL",
+   "summary": "EN has pull-up R1 to 3V3, GPIO0 pull-up R3 (with SW1 to GND), GPIO2 pull-up R4, GPIO15 pull-down R5, RST pull-up R2. These levels are correct for normal flash boot.",
+   "evidence_ok": 0,
+   "evidence_rejected": [
+    "verification/pcb/review/bundle/design.json: quote shorter than 8 characters"
+   ],
+   "evidence": [
+    {
+     "file": "verification/pcb/review/bundle/design.json",
+     "locator": "nets /GPIO15",
+     "quote": "\"R5.1\",",
+     "valid": false,
+     "why": "quote shorter than 8 characters"
+    }
+   ]
+  },
+  {
+   "id": "MOD-POWER-001",
+   "model_verdict": "FAIL",
+   "status": "FAIL",
+   "summary": "U1 is an AMS1117-1.8 driving the +3V3 rail, which powers the ESP-12F (VCC 2.7-3.6 V). The module will see 1.8 V and will not operate. The schematic symbol is AMS1117-3.3 while the value and the LCSC part (C6186) differ, so a part-number mismatch is likely as well.",
+   "evidence_ok": 2,
+   "evidence_rejected": [],
+   "evidence": [
+    {
+     "file": "verification/pcb/review/bundle/design.json",
+     "locator": "fixed_regulators",
+     "quote": "\"vout\": 1.8",
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "file": "verification/pcb/review/bundle/datasheets_text/esp-wroom-02_datasheet_en.txt",
+     "locator": "supply voltage table",
+     "quote": "Supply voltage VDD 2.7 3.3 3.6 V",
+     "valid": true,
+     "why": "ok"
+    }
+   ]
+  },
+  {
+   "id": "MOD-PROT-001",
+   "model_verdict": "FAIL",
+   "status": "FAIL",
+   "summary": "RV1 is a 07D221K varistor (about 140 Vac max) across 230 V mains. It will conduct or burn out in normal operation; a 07D471K or similar is needed. The 500 mA fuse protects only the PS1 branch, not the 16 A relay load path.",
+   "evidence_ok": 1,
+   "evidence_rejected": [],
+   "evidence": [
+    {
+     "file": "verification/pcb/review/bundle/design.json",
+     "locator": "RV1",
+     "quote": "\"value\": \"07D221K\"",
+     "valid": true,
+     "why": "ok"
+    }
+   ]
+  },
+  {
+   "id": "MOD-VALUE-001",
+   "model_verdict": "WARN",
+   "status": "WARN",
+   "summary": "Most values are plausible: 1k base resistor with 10k pull-down, 220R blue LED resistor, 1k red LED resistor. Open concerns: J1 is a MKDS 1.5 terminal (typically about 8 A) used for a 16 A relay load, and the 1N4148W flyback diode is acceptable for the 5 V coil.",
+   "evidence_ok": 1,
+   "evidence_rejected": [],
+   "evidence": [
+    {
+     "file": "verification/pcb/review/bundle/design.json",
+     "locator": "J1 footprint",
+     "quote": "TerminalBlock_Phoenix_MKDS-1,5-3-5.08_1x03_P5.08mm_Horizontal",
+     "valid": true,
+     "why": "ok"
+    }
+   ]
+  },
+  {
+   "id": "MOD-FOOT-001",
+   "model_verdict": "WARN",
+   "status": "WARN",
+   "summary": "The relay footprint is G2RL-1A-E while the part is G5RL-1A-E-HR, and the Omron datasheet could not be text-extracted. The footprint match could not be confirmed. The varistor and fuse MPNs were also not checkable.",
+   "evidence_ok": 1,
+   "evidence_rejected": [],
+   "evidence": [
+    {
+     "file": "verification/pcb/review/bundle/design.json",
+     "locator": "K1 footprint",
+     "quote": "Relay_THT:Relay_SPST_Omron_G2RL-1A-E",
+     "valid": true,
+     "why": "ok"
+    }
+   ]
+  }
+ ],
+ "extra_findings": [
+  {
+   "key": "extra-0",
+   "text": "error: U1's schematic symbol is Regulator_Linear:AMS1117-3.3, but the value is AMS1117-1.8. The net is named +3V3, so the intended part is almost certainly the 3.3 V variant.",
+   "status": "FAIL",
+   "evidence": [
+    {
+     "file": "verification/pcb/review/bundle/design.json",
+     "locator": "U1 symbol",
+     "quote": "Regulator_Linear:AMS1117-3.3",
+     "valid": true,
+     "why": "ok"
+    }
+   ]
+  },
+  {
+   "key": "extra-1",
+   "text": "warning: The load path (J1/L_IN to relay K1) bypasses fuse F1, which sits only in series with PS1 and RV1. A short in the switched load is unprotected. [unverified]",
+   "status": "WARN",
+   "evidence": [
+    {
+     "file": "verification/pcb/review/bundle/design.json",
+     "locator": "nets /L_IN",
+     "quote": "\"K1.13\"",
+     "valid": false,
+     "why": "quote shorter than 8 characters"
+    }
+   ]
+  }
+ ]
+}

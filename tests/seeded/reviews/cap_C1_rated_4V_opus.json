@@ -1,0 +1,278 @@
+{
+ "tool": "kicad-verify",
+ "kind": "review",
+ "time": "2026-10-06T20:16:41+00:00",
+ "design_hash": "122d05f4a465d35a24bf4f2cc51f3446cfbedc34",
+ "reviewer": {
+  "model": "opus",
+  "duration_s": 144.9,
+  "returncode": 0,
+  "cost_usd": 0.5118115999999999,
+  "num_turns": 14,
+  "is_error": false,
+  "models": [
+   "claude-opus-5-5"
+  ]
+ },
+ "overall": "FAIL",
+ "requirements": [
+  {
+   "id": "MOD-PINOUT-001",
+   "model_verdict": "WARN",
+   "status": "WARN",
+   "summary": "AMS1117 (U1) pinout matches its datasheet (1=GND/ADJ, 2=VOUT, 3=VIN). ESP-12F supply, GND, EN, RST, UART and strap pins go to sensible nets, but the local docs cover the ESP8266EX/ESP-WROOM-02 and not the ESP-12F itself. K1 is ordered as an Omron G5RL-1A-E-HR, yet it sits on a G2RL-1A-E symbol and footprint. The G5RL datasheet text could not be extracted, so the relay pinout and the SS8050 and HLK-PM01 pinouts could not be confirmed.",
+   "evidence_ok": 4,
+   "evidence_rejected": [],
+   "evidence": [
+    {
+     "file": "datasheets_text/ams1117.txt",
+     "locator": "page 1",
+     "quote": "1- Ground/Adjust",
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "file": "design.json",
+     "locator": "pin_tables.U1",
+     "quote": "\"name\": \"VI\",",
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "file": "design.json",
+     "locator": "components K1",
+     "quote": "\"footprint\": \"Relay_THT:Relay_SPST_Omron_G2RL-1A-E\",",
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "file": "datasheets.json",
+     "locator": "local_files omron_g5rl.pdf",
+     "quote": "\"text_error\": \"cryptography>=3.1 is required for AES algorithm\"",
+     "valid": true,
+     "why": "ok"
+    }
+   ]
+  },
+  {
+   "id": "MOD-STRAP-001",
+   "model_verdict": "PASS",
+   "status": "PASS",
+   "summary": "GPIO15 is pulled down by R5 to GND. GPIO2 (R4) and GPIO0 (R3) are pulled up to +3V3. EN has a pull-up (R1) plus C7, and RST has a pull-up (R2) plus C8. These are the flash-boot levels the Espressif pin table requires.",
+   "evidence_ok": 3,
+   "evidence_rejected": [
+    "design.json: quote shorter than 8 characters",
+    "design.json: quote shorter than 8 characters"
+   ],
+   "evidence": [
+    {
+     "file": "datasheets_text/esp-wroom-02_datasheet_en.txt",
+     "locator": "page 9, IO15",
+     "quote": "GPIO15; MTDO; HSPICS; UART0_RTS ",
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "file": "datasheets_text/esp-wroom-02_datasheet_en.txt",
+     "locator": "page 9, IO2",
+     "quote": "Floating (internal pull-up) or pull up.",
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "file": "datasheets_text/esp-wroom-02_datasheet_en.txt",
+     "locator": "page 9, IO0",
+     "quote": "•Flash boot: ﬂoating or pull up.",
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "file": "design.json",
+     "locator": "nets./GPIO15",
+     "quote": "\"R5.1\",",
+     "valid": false,
+     "why": "quote shorter than 8 characters"
+    },
+    {
+     "file": "design.json",
+     "locator": "nets.GND",
+     "quote": "\"R5.2\",",
+     "valid": false,
+     "why": "quote shorter than 8 characters"
+    }
+   ]
+  },
+  {
+   "id": "MOD-POWER-001",
+   "model_verdict": "FAIL",
+   "status": "FAIL",
+   "summary": "C1, the 470 uF electrolytic bulk capacitor rated 4 V, is connected straight across the +5 V rail (PS1 +Vout). That is a continuous over-voltage, so the part will degrade or fail, possibly by venting. U1 VIN at 5 V is well below the AMS1117's 15 V absolute maximum.",
+   "evidence_ok": 3,
+   "evidence_rejected": [
+    "design.json: quote shorter than 8 characters"
+   ],
+   "evidence": [
+    {
+     "file": "design.json",
+     "locator": "components C1",
+     "quote": "\"value\": \"470uF 4V\",",
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "file": "design.json",
+     "locator": "nets.+5V",
+     "quote": "\"C1.1\",",
+     "valid": false,
+     "why": "quote shorter than 8 characters"
+    },
+    {
+     "file": "verify_report.json",
+     "locator": "KH-VD-001",
+     "quote": "C1 (470uF 4V) exceeds voltage derating on +5V (5.0V on 4V electrolytic cap) (heuristic)",
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "file": "datasheets_text/ams1117.txt",
+     "locator": "page 2",
+     "quote": "Input Voltage               15V",
+     "valid": true,
+     "why": "ok"
+    }
+   ]
+  },
+  {
+   "id": "MOD-PROT-001",
+   "model_verdict": "WARN",
+   "status": "WARN",
+   "summary": "Mains input has a T500mA fuse (F1) before the HLK-PM01, and the varistor RV1 sits after the fuse across L_F and N, which is the right placement. RV1 is a 07D221K, a 220 V varistor-voltage part, normally rated for about 140 VAC continuous. No intent document gives the mains voltage; the Spanish naming ('rele') suggests 230 VAC, where this MOV would conduct continuously and fail. The relay load path (L_IN to K1 to L_OUT) has no fuse of its own. Assumption: 230 VAC mains.",
+   "evidence_ok": 2,
+   "evidence_rejected": [
+    "design.json: quote shorter than 8 characters"
+   ],
+   "evidence": [
+    {
+     "file": "design.json",
+     "locator": "components RV1",
+     "quote": "\"value\": \"07D221K\",",
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "file": "design.json",
+     "locator": "components F1",
+     "quote": "\"value\": \"T500mA 250V\",",
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "file": "design.json",
+     "locator": "nets./L_F",
+     "quote": "\"RV1.1\"",
+     "valid": false,
+     "why": "quote shorter than 8 characters"
+    }
+   ]
+  },
+  {
+   "id": "MOD-VALUE-001",
+   "model_verdict": "FAIL",
+   "status": "FAIL",
+   "summary": "C1's 4 V rating is below the 5 V rail it sits on, so the value does not fit its function. The other values are reasonable: 10k pull-ups and pull-down, a 1k/10k base divider on Q1, a 220 R LED resistor and 1N4148W flyback diode D1 with K to +5V and A to COIL_N.",
+   "evidence_ok": 2,
+   "evidence_rejected": [],
+   "evidence": [
+    {
+     "file": "design.json",
+     "locator": "components C1",
+     "quote": "\"value\": \"470uF 4V\",",
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "file": "design.json",
+     "locator": "nets./COIL_N",
+     "quote": "\"D1.2(A_2)\",",
+     "valid": true,
+     "why": "ok"
+    }
+   ]
+  },
+  {
+   "id": "MOD-FOOT-001",
+   "model_verdict": "WARN",
+   "status": "WARN",
+   "summary": "Footprints could not be fully checked against the ordered MPNs, and no approved-footprint list exists. K1 is ordered as a G5RL-1A-E-HR (LCSC C113250) but uses the G2RL-1A-E footprint, and the G5RL datasheet text was unreadable. C1's D6.3 mm can footprint must match the actual size of LCSC C112505, which may change once the rating is raised. J3 uses a single-row 01x06 symbol on a 2x03 header footprint, so the pin mapping should be confirmed.",
+   "evidence_ok": 3,
+   "evidence_rejected": [],
+   "evidence": [
+    {
+     "file": "design.json",
+     "locator": "components K1",
+     "quote": "\"value\": \"G5RL-1A-E-HR DC5\",",
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "file": "design.json",
+     "locator": "components C1",
+     "quote": "\"footprint\": \"Capacitor_THT:CP_Radial_D6.3mm_P2.50mm\",",
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "file": "verify_report.json",
+     "locator": "PCB-FOOT-001",
+     "quote": "no approved-footprint list; 17 footprints awaiting approval",
+     "valid": true,
+     "why": "ok"
+    }
+   ]
+  }
+ ],
+ "extra_findings": [
+  {
+   "key": "extra-0",
+   "text": "error: C1 (4 V electrolytic) sits directly across the 5 V output of the HLK-PM01. Replace it with a part rated 10 V or more (16 V preferred) and re-check the footprint diameter.",
+   "status": "FAIL",
+   "evidence": [
+    {
+     "file": "design.json",
+     "locator": "components C1",
+     "quote": "\"value\": \"470uF 4V\",",
+     "valid": true,
+     "why": "ok"
+    }
+   ]
+  },
+  {
+   "key": "extra-1",
+   "text": "warning: RV1 is a 07D221K (220 V varistor voltage), which suits about 120 VAC mains. On 230 VAC it is undersized and will overheat or fail. Use a 07D471K or 10D471K for 230 VAC.",
+   "status": "WARN",
+   "evidence": [
+    {
+     "file": "design.json",
+     "locator": "components RV1",
+     "quote": "\"value\": \"07D221K\",",
+     "valid": true,
+     "why": "ok"
+    }
+   ]
+  },
+  {
+   "key": "extra-2",
+   "text": "warning: The relay load circuit L_IN to L_OUT has no overcurrent protection on the board. F1 only protects the PS1 branch. [unverified]",
+   "status": "WARN",
+   "evidence": [
+    {
+     "file": "design.json",
+     "locator": "nets./L_IN",
+     "quote": "\"K1.13\"",
+     "valid": false,
+     "why": "quote shorter than 8 characters"
+    }
+   ]
+  }
+ ]
+}

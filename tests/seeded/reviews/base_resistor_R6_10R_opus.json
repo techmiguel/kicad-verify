@@ -1,0 +1,257 @@
+{
+ "tool": "kicad-verify",
+ "kind": "review",
+ "time": "2026-10-06T20:12:48+00:00",
+ "design_hash": "94fda6e6ae0ce96bbbfc2e80e198b534e3a2f2be",
+ "reviewer": {
+  "model": "opus",
+  "duration_s": 143.2,
+  "returncode": 0,
+  "cost_usd": 0.511439,
+  "num_turns": 13,
+  "is_error": false,
+  "models": [
+   "claude-opus-5-5"
+  ]
+ },
+ "overall": "FAIL",
+ "requirements": [
+  {
+   "id": "MOD-PINOUT-001",
+   "model_verdict": "NOT_VERIFIABLE",
+   "status": "WARN",
+   "summary": "U1 (AMS1117-3.3, SOT-223) matches its datasheet: pin 1 GND, pin 2 VOUT=+3V3, pin 3 VIN=+5V. The rest cannot be checked from the bundle. There is no ESP-12F module datasheet (only the bare ESP8266EX chip documents), no SS8050 SOT-23 datasheet (B/E/C = 1/2/3 is assumed), and no HLK-PM01 or G5RL datasheet text. The U2 pin table follows the common ESP-12F order (1 RST … 15 GND, 22 TXD), but it was not checked against a datasheet.",
+   "evidence_ok": 2,
+   "evidence_rejected": [],
+   "evidence": [
+    {
+     "file": "datasheets_text/ams1117.txt",
+     "locator": "page 1, PIN CONNECTIONS",
+     "quote": "1- Ground/Adjust",
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "file": "design.json",
+     "locator": "pin_tables U1",
+     "quote": "\"name\": \"VI\",\n     \"type\": \"power_in\",\n     \"net\": \"+5V\"",
+     "valid": true,
+     "why": "ok"
+    }
+   ]
+  },
+  {
+   "id": "MOD-STRAP-001",
+   "model_verdict": "PASS",
+   "status": "PASS",
+   "summary": "The strapping pins are at the levels needed for normal flash boot. GPIO15 (MTDO) is pulled to GND by R5. GPIO0 (R3) and GPIO2 (R4) are pulled up to +3V3. EN is pulled up by R1 with C7, and RST is pulled up by R2 with C8 and the SW2 button. GPIO0 can be pulled low by SW1 or J3 pin 5 to enter programming mode.",
+   "evidence_ok": 4,
+   "evidence_rejected": [],
+   "evidence": [
+    {
+     "file": "datasheets_text/esp8266_hardware_design_guidelines_en.txt",
+     "locator": "page 10",
+     "quote": "GPIO2, GPIO0, and MTDO are conﬁgurable on PCB as the 3-bit strapping register that determines the ",
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "file": "datasheets_text/esp8266_hardware_design_guidelines_en.txt",
+     "locator": "page 16",
+     "quote": "GPIO15, the strapping pin of ESP8266EX, needs to be at low-voltage level when ",
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "file": "design.json",
+     "locator": "nets /GPIO15",
+     "quote": "\"R5.1\",\n    \"U2.16(GPIO15_16)\"",
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "file": "design.json",
+     "locator": "nets /EN",
+     "quote": "\"C7.1\",\n    \"R1.2\",\n    \"U2.3(EN_3)\"",
+     "valid": true,
+     "why": "ok"
+    }
+   ]
+  },
+  {
+   "id": "MOD-POWER-001",
+   "model_verdict": "WARN",
+   "status": "WARN",
+   "summary": "No rail exceeds an absolute maximum rating: 5 V into the AMS1117 (15 V max), and 3.3 V to the ESP (2.5–3.6 V working range). Whether the HLK-PM01 can supply the relay coil, the ESP's Wi-Fi current peaks and the LEDs cannot be confirmed, because there is no HLK-PM01 or G5RL datasheet. The 10 Ω R6 also makes GPIO5 try to source about 260 mA. That is far above the 12 mA IMAX, so the GPIO pin itself is overstressed.",
+   "evidence_ok": 3,
+   "evidence_rejected": [],
+   "evidence": [
+    {
+     "file": "datasheets_text/ams1117.txt",
+     "locator": "page 2, Absolute Maximum Ratings",
+     "quote": "Input Voltage               15V",
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "file": "datasheets_text/0a-esp8266ex_datasheet_en.txt",
+     "locator": "page 24, Table 5-1",
+     "quote": "Working Voltage Value - 2.5 3.3 3.6 V",
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "file": "datasheets_text/0a-esp8266ex_datasheet_en.txt",
+     "locator": "page 24, Table 5-1",
+     "quote": "IMAX - - - 12 mA",
+     "valid": true,
+     "why": "ok"
+    }
+   ]
+  },
+  {
+   "id": "MOD-PROT-001",
+   "model_verdict": "WARN",
+   "status": "WARN",
+   "summary": "F1 (T500mA) protects only the HLK-PM01 branch. The relay contact path L_IN→K1→L_OUT has no fuse, so the switched load depends on upstream protection. RV1 is a 07D221K: its varistor voltage of 220 V corresponds to roughly 140 VAC continuous. On 230 VAC mains (about 325 V peak) it would conduct every cycle and fail, so it is suitable only for 100–120 VAC mains. The mains voltage is not stated in the requirements.",
+   "evidence_ok": 3,
+   "evidence_rejected": [],
+   "evidence": [
+    {
+     "file": "design.json",
+     "locator": "components RV1",
+     "quote": "\"value\": \"07D221K\"",
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "file": "design.json",
+     "locator": "nets /L_IN",
+     "quote": "\"F1.1\",\n    \"J1.3(Pin_3_3)\",\n    \"K1.13\"",
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "file": "design.json",
+     "locator": "components F1",
+     "quote": "\"value\": \"T500mA 250V\"",
+     "valid": true,
+     "why": "ok"
+    }
+   ]
+  },
+  {
+   "id": "MOD-VALUE-001",
+   "model_verdict": "FAIL",
+   "status": "FAIL",
+   "summary": "R6, the Q1 base resistor, is 10 Ω and is driven directly by ESP GPIO5 (/RELAY). The base current is about (3.3-0.7)/10 ≈ 260 mA. The ESP8266EX I/O maximum is 12 mA, so the pin is overloaded by about 20× and Q1's base is driven far harder than needed. R6 should be about 1 kΩ (≈2.6 mA base current, enough to saturate Q1 for a G5RL 5 V coil). The other values look reasonable: the 10k pull-ups, 1k/220 Ω LED resistors and 1N4148W flyback diode.",
+   "evidence_ok": 4,
+   "evidence_rejected": [],
+   "evidence": [
+    {
+     "file": "design.json",
+     "locator": "components R6",
+     "quote": "\"ref\": \"R6\",\n    \"value\": \"10\",",
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "file": "design.json",
+     "locator": "nets /RELAY",
+     "quote": "\"D2.2(A_2)\",\n    \"R6.1\",\n    \"U2.20(GPIO5_20)\"",
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "file": "datasheets_text/0a-esp8266ex_datasheet_en.txt",
+     "locator": "page 24, Table 5-1",
+     "quote": "IMAX - - - 12 mA",
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "file": "verify_report.json",
+     "locator": "CIR-BJT-001",
+     "quote": "Q1: base current 260.0 mA through R6 (10) exceeds 12.0 mA",
+     "valid": true,
+     "why": "ok"
+    }
+   ]
+  },
+  {
+   "id": "MOD-FOOT-001",
+   "model_verdict": "WARN",
+   "status": "WARN",
+   "summary": "Several parts use another part's footprint, or have an ordering code that doesn't match their value. K1 is a G5RL-1A-E-HR but uses the Omron G2RL-1A-E footprint. U2 is an ESP-12F but uses the ESP-12E footprint. Neither can be confirmed without the part datasheets. R6 (value 10 Ω) carries LCSC C21190, the same code as R8, which is 1k. The footprint check reports 17 footprints that have not been approved.",
+   "evidence_ok": 3,
+   "evidence_rejected": [],
+   "evidence": [
+    {
+     "file": "design.json",
+     "locator": "components K1",
+     "quote": "\"footprint\": \"Relay_THT:Relay_SPST_Omron_G2RL-1A-E\"",
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "file": "design.json",
+     "locator": "components U2",
+     "quote": "\"footprint\": \"RF_Module:ESP-12E\"",
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "file": "verify_report.json",
+     "locator": "PCB-FOOT-001",
+     "quote": "no approved-footprint list; 17 footprints awaiting approval",
+     "valid": true,
+     "why": "ok"
+    }
+   ]
+  }
+ ],
+ "extra_findings": [
+  {
+   "key": "extra-0",
+   "text": "error: The BOM disagrees with the schematic for R6. Its value is 10 but its LCSC code is C21190, the same code as R8, which is 1k. JLCPCB assembly will fit whatever C21190 is, so the board as built will not match the schematic. The value field or the LCSC code must be corrected (the intended value was likely 1k).",
+   "status": "FAIL",
+   "evidence": [
+    {
+     "file": "design.json",
+     "locator": "components R6",
+     "quote": "\"value\": \"10\",\n    \"footprint\": \"Resistor_SMD:R_0603_1608Metric\",\n    \"symbol\": \"Device:R\",\n    \"datasheet\": \"\",\n    \"fields\": {\n     \"LCSC\": \"C21190\"",
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "file": "design.json",
+     "locator": "components R8",
+     "quote": "\"value\": \"1k\",\n    \"footprint\": \"Resistor_SMD:R_0603_1608Metric\",\n    \"symbol\": \"Device:R\",\n    \"datasheet\": \"\",\n    \"fields\": {\n     \"LCSC\": \"C21190\"",
+     "valid": true,
+     "why": "ok"
+    }
+   ]
+  },
+  {
+   "key": "extra-1",
+   "text": "warning: The J3 programming header has +5V on pin 2, tied directly to the HLK-PM01 output and the relay coil rail. A programmer that supplies power there back-feeds the AC-DC module's output and powers the relay. Also, the 1×06 symbol is mapped onto a 2×03 footprint, so the physical pin order needs checking against the programming cable.",
+   "status": "WARN",
+   "evidence": [
+    {
+     "file": "design.json",
+     "locator": "pin_tables J3 pin 2",
+     "quote": "\"name\": \"Pin_2\",\n     \"type\": \"passive\",\n     \"net\": \"+5V\"",
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "file": "design.json",
+     "locator": "components J3",
+     "quote": "\"footprint\": \"Connector_PinHeader_2.54mm:PinHeader_2x03_P2.54mm_Vertical\"",
+     "valid": true,
+     "why": "ok"
+    }
+   ]
+  }
+ ]
+}

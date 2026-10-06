@@ -1,0 +1,222 @@
+{
+ "tool": "kicad-verify",
+ "kind": "review",
+ "time": "2026-10-06T20:24:14+00:00",
+ "design_hash": "b3f3dc19417883e3a1601cb3d2847f6c99aa6a22",
+ "reviewer": {
+  "model": "opus",
+  "duration_s": 145.0,
+  "returncode": 0,
+  "cost_usd": 0.5499466,
+  "num_turns": 16,
+  "is_error": false,
+  "models": [
+   "claude-opus-5-5"
+  ]
+ },
+ "overall": "FAIL",
+ "requirements": [
+  {
+   "id": "MOD-PINOUT-001",
+   "model_verdict": "WARN",
+   "status": "WARN",
+   "summary": "AMS1117 SOT-223 pinout (1=GND, 2=VOUT, 3=VIN) matches its datasheet. The ESP-12F nets for VCC, GND, EN, RST, GPIO0/2/15 and TXD/RXD follow the KiCad library symbol. However, the bundle has no ESP-12F datasheet (only ESP-WROOM-02/ESP8266EX), and no datasheet text for HLK-PM01, G5RL relay or SS8050, so those pinouts could not be checked against the manufacturer.",
+   "evidence_ok": 2,
+   "evidence_rejected": [],
+   "evidence": [
+    {
+     "file": "verification/pcb/review/bundle/datasheets_text/ams1117.txt",
+     "locator": "page 1, PIN CONNECTIONS",
+     "quote": "1- Ground/Adjust",
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "file": "verification/pcb/review/bundle/design.json",
+     "locator": "pin_tables.U1",
+     "quote": "\"name\": \"VO\",\n     \"type\": \"power_out\",\n     \"net\": \"+3V3\"",
+     "valid": true,
+     "why": "ok"
+    }
+   ]
+  },
+  {
+   "id": "MOD-STRAP-001",
+   "model_verdict": "PASS",
+   "status": "PASS",
+   "summary": "GPIO15 is pulled down by R5 to GND. GPIO2 is pulled up (R4 to +3V3) and GPIO0 is pulled up (R3 to +3V3, SW1 to GND for download). EN has a pull-up (R1) with C7 for an RC delay, and RST has a pull-up (R2). These levels give normal flash boot, as the Espressif pin description requires.",
+   "evidence_ok": 4,
+   "evidence_rejected": [],
+   "evidence": [
+    {
+     "file": "verification/pcb/review/bundle/datasheets_text/esp-wroom-02_datasheet_en.txt",
+     "locator": "page 9",
+     "quote": "Floating (internal pull-up) or pull up.",
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "file": "verification/pcb/review/bundle/datasheets_text/esp-wroom-02_datasheet_en.txt",
+     "locator": "page 9",
+     "quote": "•Flash boot: ﬂoating or pull up.",
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "file": "verification/pcb/review/bundle/datasheets_text/esp8266_hardware_design_guidelines_en.txt",
+     "locator": "page 11",
+     "quote": "This pin could not be float.",
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "file": "verification/pcb/review/bundle/design.json",
+     "locator": "nets./GPIO15",
+     "quote": "\"R5.1\",\n    \"U2.16(GPIO15_16)\"",
+     "valid": true,
+     "why": "ok"
+    }
+   ]
+  },
+  {
+   "id": "MOD-POWER-001",
+   "model_verdict": "WARN",
+   "status": "WARN",
+   "summary": "The AMS1117 sees 5 V against a 15 V absolute maximum, and its dropout headroom of 1.7 V is fine. The 5 V rail carries the relay coil (README says 80 mA) plus the ESP8266 peaks through the LDO. I could not confirm that this fits the HLK-PM01 output rating, because the bundle has no HLK-PM01 datasheet.",
+   "evidence_ok": 2,
+   "evidence_rejected": [],
+   "evidence": [
+    {
+     "file": "verification/pcb/review/bundle/datasheets_text/ams1117.txt",
+     "locator": "page 2, ABSOLUTE MAXIMUM RATINGS",
+     "quote": "Input Voltage               15V",
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "file": "README.md",
+     "locator": "BOM table K1",
+     "quote": "SPST-NO 16 A; 5 V coil, 80 mA",
+     "valid": true,
+     "why": "ok"
+    }
+   ]
+  },
+  {
+   "id": "MOD-PROT-001",
+   "model_verdict": "FAIL",
+   "status": "FAIL",
+   "summary": "In the schematic and PCB, F1 (the only fuse, in series with the HLK-PM01 AC/L input) has the value T50A 250V. A 50 A fuse cannot protect a ~3 W mains module. The design intent (README, CHANGELOG) and the BOM say T500mA. If the board is built to the schematic, the supply input is effectively unprotected. The varistor (07D221K) is consistent with the stated 110–120 VAC intent. Load-path fusing is delegated to an external ≤10 A breaker, as the README documents.",
+   "evidence_ok": 3,
+   "evidence_rejected": [],
+   "evidence": [
+    {
+     "file": "rele-esp12f.kicad_sch",
+     "locator": "F1 Value, line 7364",
+     "quote": "(property \"Value\" \"T50A 250V\"",
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "file": "README.md",
+     "locator": "Features",
+     "quote": "**Input protection**: T500mA time-lag fuse (protects the supply) and 07D221K varistor.",
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "file": "fabrication/BOM_JLCPCB.csv",
+     "locator": "line 15",
+     "quote": "T500mA 250V (Reomax MTS0500A; time-lag),F1,Fuse_Littelfuse_395Series,C2762401",
+     "valid": true,
+     "why": "ok"
+    }
+   ]
+  },
+  {
+   "id": "MOD-VALUE-001",
+   "model_verdict": "FAIL",
+   "status": "FAIL",
+   "summary": "F1 is T50A 250V in the schematic and PCB but T500mA in the BOM and README. The value is wrong for its function, and the design sources disagree with each other. Other values are reasonable: base resistor R6 1k (about 2.6 mA base drive for an 80 mA coil), LED resistors R8 1k and R9 220 from 3.3 V, 10k pull-ups, and EN RC of 10k/100nF.",
+   "evidence_ok": 2,
+   "evidence_rejected": [],
+   "evidence": [
+    {
+     "file": "rele-esp12f.kicad_pcb",
+     "locator": "F1 Value, line 1082",
+     "quote": "(property \"Value\" \"T50A 250V\"",
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "file": "CHANGELOG.md",
+     "locator": "line 45",
+     "quote": "F1 replaced with a Reomax MTS0500A** (T500mA 250 V, C2762401)",
+     "valid": true,
+     "why": "ok"
+    }
+   ]
+  },
+  {
+   "id": "MOD-FOOT-001",
+   "model_verdict": "NOT_VERIFIABLE",
+   "status": "WARN",
+   "summary": "I could not check the footprints against the ordered parts. F1 uses a Littelfuse 395-series footprint for a Reomax MTS part (C2762401), and K1 uses the G2RL-1A-E footprint for a G5RL-1A-E-HR. The designer says the patterns are identical, but the bundle has no datasheet text for the Reomax fuse or the G5RL (omron_g5rl.pdf has no text copy), nor for the HLK-PM01 or SS8050. The other passives and the SOT-223 LDO match their standard packages.",
+   "evidence_ok": 2,
+   "evidence_rejected": [],
+   "evidence": [
+    {
+     "file": "CHANGELOG.md",
+     "locator": "line 14",
+     "quote": "It uses the `Relay_SPST_Omron_G2RL-1A-E` footprint, which has the same 6-hole Ø1.3 mm pattern given in the G5RL-1A-E datasheet.",
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "file": "verification/pcb/review/bundle/design.json",
+     "locator": "components F1",
+     "quote": "\"footprint\": \"Fuse:Fuse_Littelfuse_395Series\"",
+     "valid": true,
+     "why": "ok"
+    }
+   ]
+  }
+ ],
+ "extra_findings": [
+  {
+   "key": "extra-0",
+   "text": "error: The F1 value in the schematic and PCB (T50A) does not match the BOM/CPL source of truth (T500mA). Gerber silkscreen, assembly drawings, and any rework or replacement made from the schematic would fit a 50 A fuse on a mains input. Neither the deterministic parity checks nor the BOM checks flagged the inconsistency.",
+   "status": "FAIL",
+   "evidence": [
+    {
+     "file": "rele-esp12f.kicad_sch",
+     "locator": "line 7364",
+     "quote": "(property \"Value\" \"T50A 250V\"",
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "file": "fabrication/BOM_JLCPCB.csv",
+     "locator": "line 15",
+     "quote": "T500mA 250V (Reomax MTS0500A; time-lag)",
+     "valid": true,
+     "why": "ok"
+    }
+   ]
+  },
+  {
+   "key": "extra-1",
+   "text": "warning: The relay load path (L_IN to K1 to L_OUT, 10 A) has no on-board overcurrent protection. The design depends on an external ≤10 A breaker, which must be stated on the product label or in the installation instructions.",
+   "status": "WARN",
+   "evidence": [
+    {
+     "file": "README.md",
+     "locator": "Notes",
+     "quote": "**The load current does not flow through F1**, which only protects the supply.",
+     "valid": true,
+     "why": "ok"
+    }
+   ]
+  }
+ ]
+}

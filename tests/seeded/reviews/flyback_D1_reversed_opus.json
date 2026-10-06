@@ -1,0 +1,292 @@
+{
+ "tool": "kicad-verify",
+ "kind": "review",
+ "time": "2026-10-06T20:00:47+00:00",
+ "design_hash": "a73c82dff79e671ddeb9e9ece5f03137eb4ac698",
+ "reviewer": {
+  "model": "opus",
+  "duration_s": 152.3,
+  "returncode": 0,
+  "cost_usd": 0.6591971999999999,
+  "num_turns": 13,
+  "is_error": false,
+  "models": [
+   "claude-opus-5-5"
+  ]
+ },
+ "overall": "FAIL",
+ "requirements": [
+  {
+   "id": "MOD-PINOUT-001",
+   "model_verdict": "FAIL",
+   "status": "FAIL",
+   "summary": "Flyback diode D1 (1N4148W) is wired backwards across relay coil K1: anode (pin 2) on +5V and cathode (pin 1) on /COIL_N. When Q1 saturates, /COIL_N drops to ~0 V and D1 conducts forward from +5V straight to GND through Q1, shorting the HLK-PM01 output and destroying D1 (and then leaving the coil with no flyback clamp). Cathode must go to +5V. The PCB is inconsistent with this too: DRC reports D1 pads shorted to tracks of the other net. U1 (AMS1117) SOT-223 pinout matches the datasheet (1=GND, 2=VOUT, 3=VIN). Q1 SS8050 BEC, PS1 and ESP-12F pinouts cannot be checked because those datasheets are not in the bundle (the ESP datasheets provided are for ESP-WROOM-02/ESP8266EX, not ESP-12F).",
+   "evidence_ok": 5,
+   "evidence_rejected": [],
+   "evidence": [
+    {
+     "file": "design.json",
+     "locator": "nets./COIL_N",
+     "quote": "\"D1.1(K_1)\",\n    \"K1.A1\",\n    \"Q1.3(C_3)\"",
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "file": "design.json",
+     "locator": "nets.+5V",
+     "quote": "\"D1.2(A_2)\"",
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "file": "verify_report.json",
+     "locator": "CIR-POL-001",
+     "quote": "D1 (1N4148W): flyback diode across K1 is reversed (anode on supply +5V); it shorts the supply when the switch turns on",
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "file": "verify_report.json",
+     "locator": "PCB-DRC-001 cf83509642",
+     "quote": "Items shorting two nets (nets +5V and /COIL_N) (Pad 2 [+5V] of D1 on F.Cu; Track [/COIL_N] on F.Cu, length 1.7000 mm)",
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "file": "datasheets_text/ams1117.txt",
+     "locator": "page 1, PIN CONNECTIONS",
+     "quote": "1- Ground/Adjust",
+     "valid": true,
+     "why": "ok"
+    }
+   ]
+  },
+  {
+   "id": "MOD-STRAP-001",
+   "model_verdict": "PASS",
+   "status": "PASS",
+   "summary": "The ESP8266 straps sit at the levels needed for flash boot: GPIO15 is pulled down by R5 (10k to GND); GPIO2 is pulled up by R4 and GPIO0 by R3 (10k to +3V3, with SW1 or J3 pulling it low for download); EN is pulled up by R1 with a 100 nF RC (C7); RST is pulled up by R2 with C8. This matches the Espressif strapping table. The table quoted comes from the ESP-WROOM-02 datasheet (same ESP8266EX chip), because no ESP-12F datasheet is in the bundle.",
+   "evidence_ok": 6,
+   "evidence_rejected": [],
+   "evidence": [
+    {
+     "file": "datasheets_text/esp-wroom-02_datasheet_en.txt",
+     "locator": "page 9, IO15",
+     "quote": "GPIO15; MTDO; HSPICS; UART0_RTS ",
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "file": "datasheets_text/esp-wroom-02_datasheet_en.txt",
+     "locator": "page 9, IO2",
+     "quote": "Floating (internal pull-up) or pull up.",
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "file": "datasheets_text/esp-wroom-02_datasheet_en.txt",
+     "locator": "page 9, IO0",
+     "quote": "•Flash boot: ﬂoating or pull up.",
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "file": "datasheets_text/esp8266_hardware_design_guidelines_en.txt",
+     "locator": "page 11, CHIP_EN note",
+     "quote": "This pin could not be float.",
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "file": "design.json",
+     "locator": "nets./EN",
+     "quote": "\"C7.1\",\n    \"R1.2\",\n    \"U2.3(EN_3)\"",
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "file": "design.json",
+     "locator": "nets./GPIO15",
+     "quote": "\"R5.1\",\n    \"U2.16(GPIO15_16)\"",
+     "valid": true,
+     "why": "ok"
+    }
+   ]
+  },
+  {
+   "id": "MOD-POWER-001",
+   "model_verdict": "FAIL",
+   "status": "FAIL",
+   "summary": "Because D1 is reversed, every time the relay turns on (Q1 on) the +5V rail is shorted to GND through D1 and Q1. This overloads PS1 (HLK-PM01) and is far beyond the 1N4148W's forward rating, so the 5 V source cannot supply its load. Otherwise, the AMS1117 sees 5 V against a 15 V absolute maximum and has 1.7 V of headroom (it needs at least 1.5 V), which is fine. PS1's current budget cannot be confirmed because there is no HLK-PM01 datasheet.",
+   "evidence_ok": 3,
+   "evidence_rejected": [],
+   "evidence": [
+    {
+     "file": "verify_report.json",
+     "locator": "CIR-POL-001",
+     "quote": "it shorts the supply when the switch turns on",
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "file": "datasheets_text/ams1117.txt",
+     "locator": "page 2, Absolute Maximum Ratings",
+     "quote": "Input Voltage               15V",
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "file": "design.json",
+     "locator": "pin_tables.PS1",
+     "quote": "\"name\": \"+Vout\",\n     \"type\": \"power_out\",\n     \"net\": \"+5V\"",
+     "valid": true,
+     "why": "ok"
+    }
+   ]
+  },
+  {
+   "id": "MOD-PROT-001",
+   "model_verdict": "WARN",
+   "status": "WARN",
+   "summary": "F1 (T500mA) and RV1 protect only the PS1 branch (L_IN -> F1 -> L_F -> PS1/RV1). The switched load path L_IN -> K1 -> L_OUT has no fuse on the board, so a load fault is protected only by the upstream breaker; the relay is rated 16 A. RV1 is a 07D221K (220 V varistor voltage, about 140 VAC continuous). If the board is used on 230 VAC mains, which the 250 V fuse rating suggests, this varistor will conduct at line peaks and fail or blow F1. A 07D471K-class part would be needed for 230 VAC. The mains voltage is not stated in the requirements.",
+   "evidence_ok": 4,
+   "evidence_rejected": [],
+   "evidence": [
+    {
+     "file": "design.json",
+     "locator": "nets./L_IN",
+     "quote": "\"F1.1\",\n    \"J1.3(Pin_3_3)\",\n    \"K1.13\"",
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "file": "design.json",
+     "locator": "nets./L_OUT",
+     "quote": "\"J1.2(Pin_2_2)\",\n    \"K1.14\"",
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "file": "design.json",
+     "locator": "components RV1",
+     "quote": "\"value\": \"07D221K\"",
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "file": "design.json",
+     "locator": "components F1",
+     "quote": "\"value\": \"T500mA 250V\"",
+     "valid": true,
+     "why": "ok"
+    }
+   ]
+  },
+  {
+   "id": "MOD-VALUE-001",
+   "model_verdict": "WARN",
+   "status": "WARN",
+   "summary": "The pull-ups, the base drive (R6 1k, R7 10k pull-down) and the LED resistors (R8 1k, R9 220R) are reasonable. However, the AMS1117 datasheet asks for a 22 µF solid tantalum output capacitor for stability, and C4 is a 22 µF ceramic in 0805, whose ESR may be too low for this LDO. RV1 07D221K is undersized for 230 VAC (see MOD-PROT-001). D1's value is right, but it is fitted in the wrong orientation.",
+   "evidence_ok": 2,
+   "evidence_rejected": [],
+   "evidence": [
+    {
+     "file": "datasheets_text/ams1117.txt",
+     "locator": "page 3, application",
+     "quote": "The addition of  22 µ F solid tantalum on the output will ensure ",
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "file": "design.json",
+     "locator": "components C4",
+     "quote": "\"value\": \"22uF 10V\",\n    \"footprint\": \"Capacitor_SMD:C_0805_2012Metric\"",
+     "valid": true,
+     "why": "ok"
+    }
+   ]
+  },
+  {
+   "id": "MOD-FOOT-001",
+   "model_verdict": "WARN",
+   "status": "WARN",
+   "summary": "The U1 SOT-223-3_TabPin2 footprint matches the AMS1117 SOT-223 pinout (tab = VOUT). K1 is a G5RL-1A-E-HR placed on the Relay_SPST_Omron_G2RL-1A-E footprint, and U2 is an ESP-12F on the ESP-12E footprint. These are plausible equivalents, but neither can be checked without the G5RL and ESP-12F datasheets, which are not in the bundle. There are also no datasheets for SS8050, HLK-PM01, the TS-1187A buttons or the fuse. On the PCB, D1's pads are now cross-connected to tracks of the opposite net, so the D1 orientation and routing on the board are wrong.",
+   "evidence_ok": 4,
+   "evidence_rejected": [],
+   "evidence": [
+    {
+     "file": "datasheets_text/ams1117.txt",
+     "locator": "page 1",
+     "quote": "TAB IS \nOUTPUT",
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "file": "design.json",
+     "locator": "components K1",
+     "quote": "\"footprint\": \"Relay_THT:Relay_SPST_Omron_G2RL-1A-E\"",
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "file": "design.json",
+     "locator": "components U2",
+     "quote": "\"footprint\": \"RF_Module:ESP-12E\"",
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "file": "verify_report.json",
+     "locator": "PCB-CONN-001",
+     "quote": "Missing connection between items (Track [/COIL_N] on F.Cu, length 4.6600 mm; Pad 1 [/COIL_N] of D1 on F.Cu)",
+     "valid": true,
+     "why": "ok"
+    }
+   ]
+  }
+ ],
+ "extra_findings": [
+  {
+   "key": "extra-0",
+   "text": "error: The PCB around D1 has 3 shorting_items and 3 solder_mask_bridge DRC errors (+5V to /COIL_N) and 2 unrouted connections. The board as routed would short the 5 V rail to the coil node even without powering the relay. It must be re-routed once the diode orientation is fixed.",
+   "status": "FAIL",
+   "evidence": [
+    {
+     "file": "verify_report.json",
+     "locator": "PCB-DRC-001 6694e9da1b",
+     "quote": "Items shorting two nets (nets +5V and /COIL_N) (Track [+5V] on F.Cu, length 2.9698 mm; Pad 1 [/COIL_N] of D1 on F.Cu)",
+     "valid": true,
+     "why": "ok"
+    }
+   ]
+  },
+  {
+   "key": "extra-1",
+   "text": "warning: Pin 2 of programming header J3 ties the programmer's +5V directly onto the HLK-PM01 output rail. Powering the board from both at once back-feeds one supply into the other. There is no isolation between this low-voltage header and a board carrying live mains, so programming must only be done with mains disconnected.",
+   "status": "WARN",
+   "evidence": [
+    {
+     "file": "design.json",
+     "locator": "nets.+5V",
+     "quote": "\"J3.2(Pin_2_2)\"",
+     "valid": true,
+     "why": "ok"
+    }
+   ]
+  },
+  {
+   "key": "extra-2",
+   "text": "warning: The bundle only has datasheets for ESP-WROOM-02 and ESP8266EX, not for the ESP-12F that is actually used. There are also no local datasheets for HLK-PM01, G5RL relay, SS8050 or 1N4148W, so their ratings and pinouts were not checked.",
+   "status": "WARN",
+   "evidence": [
+    {
+     "file": "design.json",
+     "locator": "components U2",
+     "quote": "\"value\": \"ESP-12F\"",
+     "valid": true,
+     "why": "ok"
+    }
+   ]
+  }
+ ]
+}

@@ -1,0 +1,205 @@
+{
+ "tool": "kicad-verify",
+ "kind": "review",
+ "time": "2026-10-06T20:10:00+00:00",
+ "design_hash": "79b654a1c1a6691ec314fe58c4100fac5535312c",
+ "reviewer": {
+  "model": "sonnet",
+  "duration_s": 58.1,
+  "returncode": 0,
+  "cost_usd": 0.26383080000000003,
+  "num_turns": 10,
+  "is_error": false,
+  "models": [
+   "claude-sonnet-5-5"
+  ]
+ },
+ "overall": "FAIL",
+ "requirements": [
+  {
+   "id": "MOD-PINOUT-001",
+   "model_verdict": "PASS",
+   "status": "PASS",
+   "summary": "ESP-12F, AMS1117 (GND/VOUT/VIN), SS8050 (B/E/C), HLK-PM01 and relay pin tables are consistent. GPIO15 has a pull-down, GPIO2 and GPIO0 have pull-ups, and the J3 programming header is plausible. J3 TXD/RXD are wired straight through, so the adapter must be crossed. This is a 5V rail conflict risk when J3 and PS1 are both powered. The Omron datasheet text was not extractable, so K1 pins 13/14/A1/A2 were not checked against it.",
+   "evidence_ok": 2,
+   "evidence_rejected": [
+    "datasheets_text/ams1117.txt: quote shorter than 8 characters"
+   ],
+   "evidence": [
+    {
+     "file": "datasheets_text/ams1117.txt",
+     "locator": "page 1 pin connections",
+     "quote": "2- VOUT",
+     "valid": false,
+     "why": "quote shorter than 8 characters"
+    },
+    {
+     "file": "datasheets_text/esp-wroom-02_datasheet_en.txt",
+     "locator": "page 9 pin description IO15",
+     "quote": "Pull down.",
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "file": "design.json",
+     "locator": "pin_tables.U1",
+     "quote": "\"name\": \"VO\",",
+     "valid": true,
+     "why": "ok"
+    }
+   ]
+  },
+  {
+   "id": "MOD-STRAP-001",
+   "model_verdict": "PASS",
+   "status": "PASS",
+   "summary": "GPIO15 is pulled down by R5, GPIO2 up by R4, GPIO0 up by R3 with SW1 for download mode, and EN/RST are pulled up by R1/R2. This matches the strapping requirements.",
+   "evidence_ok": 2,
+   "evidence_rejected": [],
+   "evidence": [
+    {
+     "file": "datasheets_text/esp-wroom-02_datasheet_en.txt",
+     "locator": "page 9 IO0",
+     "quote": "•Flash boot: ﬂoating or pull up.",
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "file": "datasheets_text/esp-wroom-02_datasheet_en.txt",
+     "locator": "page 9 IO2",
+     "quote": "Floating (internal pull-up) or pull up.",
+     "valid": true,
+     "why": "ok"
+    }
+   ]
+  },
+  {
+   "id": "MOD-POWER-001",
+   "model_verdict": "PASS",
+   "status": "PASS",
+   "summary": "The HLK-PM01 supplies 5V for a relay coil of about 90mA plus the ESP at roughly 80mA average (about 300–500mA peak). The AMS1117 has 1.7V of headroom for 3.3V, above its 1.5V dropout. No overvoltage found. Margin on the HLK-PM01 (600mA) is thin at WiFi peaks but acceptable. The HLK-PM01 datasheet was not provided.",
+   "evidence_ok": 2,
+   "evidence_rejected": [],
+   "evidence": [
+    {
+     "file": "datasheets_text/esp-wroom-02_datasheet_en.txt",
+     "locator": "page power supply",
+     "quote": "It is recommended the maximum output current a power supply",
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "file": "design.json",
+     "locator": "fixed_regulators.U1",
+     "quote": "\"vout\": 3.3",
+     "valid": true,
+     "why": "ok"
+    }
+   ]
+  },
+  {
+   "id": "MOD-PROT-001",
+   "model_verdict": "FAIL",
+   "status": "FAIL",
+   "summary": "The varistor RV1 is a 07D221K (220V varistor voltage, roughly 140VAC continuous rating) across the mains input. The board is rated for 250VAC, so it would conduct and overheat on 230V mains. A 471K-class part is needed. In addition, the switched load path (J1 L_IN to K1 to L_OUT) is not fused: F1 only protects the PS1 branch.",
+   "evidence_ok": 1,
+   "evidence_rejected": [
+    "design.json: quote shorter than 8 characters"
+   ],
+   "evidence": [
+    {
+     "file": "design.json",
+     "locator": "RV1 value",
+     "quote": "\"value\": \"07D221K\",",
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "file": "design.json",
+     "locator": "nets /L_IN",
+     "quote": "\"K1.13\"",
+     "valid": false,
+     "why": "quote shorter than 8 characters"
+    }
+   ]
+  },
+  {
+   "id": "MOD-VALUE-001",
+   "model_verdict": "FAIL",
+   "status": "FAIL",
+   "summary": "R9 is 10 ohm in series with the blue WiFi LED D3 on a GPIO4 3.3V drive. That gives about 30mA, above the 20mA LED limit, and far above what an ESP8266 GPIO should source. A value of about 330 ohm to 1k is appropriate. The deterministic check CIR-LED-001 confirms this.",
+   "evidence_ok": 2,
+   "evidence_rejected": [],
+   "evidence": [
+    {
+     "file": "design.json",
+     "locator": "R9",
+     "quote": "\"value\": \"10\",",
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "file": "verify_report.json",
+     "locator": "CIR-LED-001",
+     "quote": "D3: 30.0 mA through R9 (10) from 3.3 V, Vf≈3.0 V > 20.0 mA",
+     "valid": true,
+     "why": "ok"
+    }
+   ]
+  },
+  {
+   "id": "MOD-FOOT-001",
+   "model_verdict": "WARN",
+   "status": "WARN",
+   "summary": "The 17 footprints are not on an approved list. The relay (G2RL-1A-E footprint for G5RL-1A-E-HR), HLK-PM01, fuse (Littelfuse 395) and varistor footprints could not be verified against the ordered parts' datasheets. Pin-1 orientation of the SOT-23 and SOT-223 parts looks consistent with the symbols. The Omron PDF text is unreadable.",
+   "evidence_ok": 2,
+   "evidence_rejected": [],
+   "evidence": [
+    {
+     "file": "design.json",
+     "locator": "K1 footprint",
+     "quote": "Relay_THT:Relay_SPST_Omron_G2RL-1A-E",
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "file": "verify_report.json",
+     "locator": "PCB-FOOT-001",
+     "quote": "17 footprints awaiting approval",
+     "valid": true,
+     "why": "ok"
+    }
+   ]
+  }
+ ],
+ "extra_findings": [
+  {
+   "key": "extra-0",
+   "text": "warning: J3 supplies +5V on the same net as the HLK-PM01 output. Connecting a USB-serial adapter's 5V while mains is powered will back-feed or fight the PS1 output.",
+   "status": "WARN",
+   "evidence": [
+    {
+     "file": "design.json",
+     "locator": "pin_tables.J3 pin 2",
+     "quote": "\"net\": \"+5V\"",
+     "valid": true,
+     "why": "ok"
+    }
+   ]
+  },
+  {
+   "key": "extra-1",
+   "text": "warning: ESP-12F has no 3.3V bulk decoupling check beyond C4/C5/C6/C9. The AMS1117 datasheet requires the output capacitor ESR to be within spec. The 22uF ceramic C4 on the output may cause instability, since the AMS1117 expects a tantalum or electrolytic output capacitor.",
+   "status": "WARN",
+   "evidence": [
+    {
+     "file": "design.json",
+     "locator": "C4",
+     "quote": "\"value\": \"22uF 10V\",",
+     "valid": true,
+     "why": "ok"
+    }
+   ]
+  }
+ ]
+}

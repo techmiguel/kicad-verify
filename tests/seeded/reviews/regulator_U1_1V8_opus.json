@@ -1,0 +1,245 @@
+{
+ "tool": "kicad-verify",
+ "kind": "review",
+ "time": "2026-10-06T20:05:13+00:00",
+ "design_hash": "f3abafe16c1b944d2acfe839b110aa76124d42f4",
+ "reviewer": {
+  "model": "opus",
+  "duration_s": 171.7,
+  "returncode": 0,
+  "cost_usd": 0.5634842,
+  "num_turns": 15,
+  "is_error": false,
+  "models": [
+   "claude-opus-5-5"
+  ]
+ },
+ "overall": "FAIL",
+ "requirements": [
+  {
+   "id": "MOD-PINOUT-001",
+   "model_verdict": "WARN",
+   "status": "WARN",
+   "summary": "U1 pins match the AMS1117 datasheet: pin 1 GND/ADJ to GND, pin 2 VOUT to the +3V3 net, pin 3 VIN to +5V. The ESP-12F module pins use the KiCad RF_Module:ESP-12F symbol, but no ESP-12F datasheet is in the bundle (only the ESP8266EX chip and WROOM-02 datasheets), so the module pinout cannot be checked against its own datasheet. The HLK-PM01 and G5RL relay pinouts cannot be checked either: there is no HLK-PM01 datasheet, and the Omron PDF failed text extraction.",
+   "evidence_ok": 3,
+   "evidence_rejected": [
+    "datasheets_text/ams1117.txt: quote shorter than 8 characters"
+   ],
+   "evidence": [
+    {
+     "file": "datasheets_text/ams1117.txt",
+     "locator": "page 1, PIN CONNECTIONS",
+     "quote": "1- Ground/Adjust",
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "file": "datasheets_text/ams1117.txt",
+     "locator": "page 1, PIN CONNECTIONS",
+     "quote": "2- VOUT  ",
+     "valid": false,
+     "why": "quote shorter than 8 characters"
+    },
+    {
+     "file": "design.json",
+     "locator": "pin_tables.U1 pin 3",
+     "quote": "\"name\": \"VI\",\n     \"type\": \"power_in\",\n     \"net\": \"+5V\"",
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "file": "datasheets.json",
+     "locator": "local_files omron_g5rl.pdf",
+     "quote": "\"text_error\": \"cryptography>=3.1 is required for AES algorithm\"",
+     "valid": true,
+     "why": "ok"
+    }
+   ]
+  },
+  {
+   "id": "MOD-STRAP-001",
+   "model_verdict": "WARN",
+   "status": "WARN",
+   "summary": "The strapping topology is correct. GPIO15 is pulled down by R5 to GND. GPIO0 and GPIO2 are pulled up by R3 and R4. EN has R1 pull-up plus C7, and RST has R2 pull-up plus C8. However, every pull-up goes to the +3V3 net, which U1 (AMS1117-1.8) actually holds at 1.8 V. That is below the ESP8266 2.5 V minimum working voltage, so normal start-up will not happen even though the strap levels are logically right.",
+   "evidence_ok": 3,
+   "evidence_rejected": [],
+   "evidence": [
+    {
+     "file": "datasheets_text/esp8266_hardware_design_guidelines_en.txt",
+     "locator": "page 16",
+     "quote": "GPIO15, the strapping pin of ESP8266EX, needs to be at low-voltage level when",
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "file": "design.json",
+     "locator": "nets./GPIO15",
+     "quote": "\"R5.1\",\n    \"U2.16(GPIO15_16)\"",
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "file": "datasheets_text/0a-esp8266ex_datasheet_en.txt",
+     "locator": "page 24, Table 5-1",
+     "quote": "Working Voltage Value - 2.5 3.3 3.6 V",
+     "valid": true,
+     "why": "ok"
+    }
+   ]
+  },
+  {
+   "id": "MOD-POWER-001",
+   "model_verdict": "FAIL",
+   "status": "FAIL",
+   "summary": "U1 is a fixed 1.8 V AMS1117 (AMS1117-1.8), but it drives the +3V3 rail that powers the ESP-12F VCC pin. 1.8 V is below the ESP8266EX working range of 2.5 to 3.6 V, so the module will not run or will behave erratically. The deterministic check CIR-REG-001 also flags this mismatch.",
+   "evidence_ok": 4,
+   "evidence_rejected": [],
+   "evidence": [
+    {
+     "file": "design.json",
+     "locator": "components U1 value",
+     "quote": "\"value\": \"AMS1117-1.8\"",
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "file": "design.json",
+     "locator": "fixed_regulators.U1",
+     "quote": "\"output_net\": \"+3V3\",\n    \"vout\": 1.8",
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "file": "datasheets_text/0a-esp8266ex_datasheet_en.txt",
+     "locator": "page 7",
+     "quote": "Operating Voltage 2.5 V ~ 3.6 V",
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "file": "verify_report.json",
+     "locator": "CIR-REG-001",
+     "quote": "U1 (AMS1117-1.8) outputs 1.8 V on rail +3V3 (3.3 V)",
+     "valid": true,
+     "why": "ok"
+    }
+   ]
+  },
+  {
+   "id": "MOD-PROT-001",
+   "model_verdict": "WARN",
+   "status": "WARN",
+   "summary": "The mains input has F1 (T500mA) in series with L ahead of PS1, and RV1 across L_F and N after the fuse, which is a reasonable topology for a 3 W HLK-PM01. However, RV1 is a 07D221K (220 V varistor voltage). A 221K part is normally rated for only about 140 VAC continuous, so on 230 VAC mains it would conduct continuously and fail. A 471K part is typical for 230 V. The mains voltage is not stated, and no varistor datasheet is provided. The relay load path (L_IN to K1.13 to L_OUT) is unfused on the board.",
+   "evidence_ok": 3,
+   "evidence_rejected": [],
+   "evidence": [
+    {
+     "file": "design.json",
+     "locator": "components RV1 value",
+     "quote": "\"value\": \"07D221K\"",
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "file": "design.json",
+     "locator": "components F1 value",
+     "quote": "\"value\": \"T500mA 250V\"",
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "file": "design.json",
+     "locator": "nets./L_F",
+     "quote": "\"F1.2\",\n    \"PS1.1(AC/L_1)\",\n    \"RV1.1\"",
+     "valid": true,
+     "why": "ok"
+    }
+   ]
+  },
+  {
+   "id": "MOD-VALUE-001",
+   "model_verdict": "FAIL",
+   "status": "FAIL",
+   "summary": "The U1 regulator value is wrong for its function: an AMS1117-1.8 is fitted on a rail named +3V3 that feeds a 3.3 V module. The symbol (AMS1117-3.3) and the value (AMS1117-1.8) also disagree. The other values look reasonable: 10k pull-ups, 1k base resistor with a 10k pull-down, 1k LED resistor, 220 ohm LED resistor, and a 1N4148W flyback diode across the coil.",
+   "evidence_ok": 2,
+   "evidence_rejected": [],
+   "evidence": [
+    {
+     "file": "design.json",
+     "locator": "components U1",
+     "quote": "\"value\": \"AMS1117-1.8\",\n    \"footprint\": \"Package_TO_SOT_SMD:SOT-223-3_TabPin2\",\n    \"symbol\": \"Regulator_Linear:AMS1117-3.3\"",
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "file": "datasheets_text/ams1117.txt",
+     "locator": "page 1, ordering table",
+     "quote": "AMS1117CD-1.8  AMS1117-1.8  AMS1117CS-1.8",
+     "valid": true,
+     "why": "ok"
+    }
+   ]
+  },
+  {
+   "id": "MOD-FOOT-001",
+   "model_verdict": "WARN",
+   "status": "WARN",
+   "summary": "The U1 SOT-223 footprint matches the AMS1117 SOT-223 package, and the ESP-12E footprint is pin-compatible with the ESP-12F. K1 is valued as an Omron G5RL-1A-E-HR, but it uses the G2RL-1A-E footprint, and the G5RL datasheet could not be read to confirm the pad layout. No footprint is on an approved list yet (PCB-FOOT-001 WARN), and the LCSC codes cannot be checked offline.",
+   "evidence_ok": 2,
+   "evidence_rejected": [],
+   "evidence": [
+    {
+     "file": "design.json",
+     "locator": "components K1",
+     "quote": "\"value\": \"G5RL-1A-E-HR DC5\",\n    \"footprint\": \"Relay_THT:Relay_SPST_Omron_G2RL-1A-E\"",
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "file": "verify_report.json",
+     "locator": "PCB-FOOT-001",
+     "quote": "no approved-footprint list; 17 footprints awaiting approval",
+     "valid": true,
+     "why": "ok"
+    }
+   ]
+  }
+ ],
+ "extra_findings": [
+  {
+   "key": "extra-0",
+   "text": "error: The BOM and the schematic disagree on U1. The value is AMS1117-1.8, but the symbol is AMS1117-3.3, and the same LCSC code C6186 is ordered (C6186 is commonly the AMS1117-3.3 listing). What JLCPCB actually places is ambiguous. Pick one part (AMS1117-3.3 for this design) and make the value, symbol and LCSC code agree.",
+   "status": "FAIL",
+   "evidence": [
+    {
+     "file": "design.json",
+     "locator": "components U1 fields",
+     "quote": "\"LCSC\": \"C6186\"",
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "file": "design.json",
+     "locator": "components U1 symbol",
+     "quote": "\"symbol\": \"Regulator_Linear:AMS1117-3.3\"",
+     "valid": true,
+     "why": "ok"
+    }
+   ]
+  },
+  {
+   "key": "extra-1",
+   "text": "warning: Pin 2 of the programming header J3 is tied to +5V, the HLK-PM01 output. If a USB-UART adapter powers the board through this pin, it back-feeds the AC-DC module's output. If the board is programmed while mains is connected, the header is not isolated from mains-powered circuitry. Consider supplying 3V3 instead, or adding a warning on the silkscreen.",
+   "status": "WARN",
+   "evidence": [
+    {
+     "file": "design.json",
+     "locator": "pin_tables.J3 pin 2",
+     "quote": "\"name\": \"Pin_2\",\n     \"type\": \"passive\",\n     \"net\": \"+5V\"",
+     "valid": true,
+     "why": "ok"
+    }
+   ]
+  }
+ ]
+}

@@ -1,0 +1,277 @@
+{
+  "fixture": "smartRele@6053b84d",
+  "rows": [
+    {
+      "mutation": "pcb_pin_swap_U1",
+      "group": "layout",
+      "expected": "PCB-PARITY-001",
+      "applied": true,
+      "deterministic": true,
+      "deterministic_checks": [
+        "PCB-CONN-001",
+        "PCB-DRC-001",
+        "PCB-PARITY-001"
+      ]
+    },
+    {
+      "mutation": "footprint_swapped",
+      "group": "layout",
+      "expected": "PCB-PARITY-001",
+      "applied": true,
+      "deterministic": true,
+      "deterministic_checks": [
+        "FAB-BOM-001",
+        "PCB-FOOT-001",
+        "PCB-PARITY-001"
+      ]
+    },
+    {
+      "mutation": "track_in_MH1_keepout",
+      "group": "layout",
+      "expected": "PCB-KEEPOUT-001",
+      "applied": true,
+      "deterministic": true,
+      "deterministic_checks": [
+        "FAB-STALE-001",
+        "PCB-CONN-001",
+        "PCB-DRC-001",
+        "PCB-KEEPOUT-001"
+      ]
+    },
+    {
+      "mutation": "gerbers_stale",
+      "group": "fab",
+      "expected": "FAB-STALE-001",
+      "applied": true,
+      "deterministic": true,
+      "deterministic_checks": [
+        "FAB-STALE-001",
+        "PCB-CONN-001",
+        "PCB-DRC-001"
+      ]
+    },
+    {
+      "mutation": "drill_J1_1.3mm",
+      "group": "fab",
+      "expected": "FAB-DRILL-001",
+      "applied": true,
+      "deterministic": true,
+      "deterministic_checks": [
+        "FAB-DRILL-001"
+      ]
+    },
+    {
+      "mutation": "MH1_moved_1mm",
+      "group": "fab",
+      "expected": "FAB-DRILL-001",
+      "applied": true,
+      "deterministic": true,
+      "deterministic_checks": [
+        "FAB-DRILL-001",
+        "PCB-KEEPOUT-001"
+      ]
+    },
+    {
+      "mutation": "cpl_body_centre_U2",
+      "group": "fab",
+      "expected": "FAB-CPL-001",
+      "applied": true,
+      "deterministic": true,
+      "deterministic_checks": [
+        "FAB-CPL-001"
+      ]
+    },
+    {
+      "mutation": "cpl_missing_K1",
+      "group": "fab",
+      "expected": "FAB-CPL-001",
+      "applied": true,
+      "deterministic": true,
+      "deterministic_checks": [
+        "FAB-CPL-001"
+      ]
+    },
+    {
+      "mutation": "bom_missing_C9",
+      "group": "fab",
+      "expected": "FAB-BOM-001",
+      "applied": true,
+      "deterministic": true,
+      "deterministic_checks": [
+        "FAB-BOM-001"
+      ]
+    },
+    {
+      "mutation": "led_D2_reversed",
+      "group": "circuit",
+      "expected": "CIR-POL-001",
+      "applied": true,
+      "deterministic": true,
+      "deterministic_checks": [
+        "CIR-LED-001",
+        "CIR-POL-001",
+        "PCB-CONN-001",
+        "PCB-DRC-001",
+        "PCB-PARITY-001"
+      ],
+      "reviewer_opus": [
+        "FAIL",
+        "MOD-VALUE-001"
+      ],
+      "reviewer_opus_cost": 0.5732822,
+      "reviewer_sonnet": [
+        "FAIL",
+        "MOD-PINOUT-001"
+      ],
+      "reviewer_sonnet_cost": 0.18881199999999998
+    },
+    {
+      "mutation": "flyback_D1_reversed",
+      "group": "circuit",
+      "expected": "CIR-POL-001",
+      "applied": true,
+      "deterministic": true,
+      "deterministic_checks": [
+        "CIR-POL-001",
+        "PCB-CONN-001",
+        "PCB-DRC-001"
+      ],
+      "reviewer_opus": [
+        "FAIL",
+        "MOD-PINOUT-001"
+      ],
+      "reviewer_opus_cost": 0.6591971999999999,
+      "reviewer_sonnet": [
+        "FAIL",
+        "REV-EXTRA"
+      ],
+      "reviewer_sonnet_cost": 0.1414956
+    },
+    {
+      "mutation": "regulator_U1_1V8",
+      "group": "circuit",
+      "expected": "CIR-REG-001",
+      "applied": true,
+      "deterministic": true,
+      "deterministic_checks": [
+        "CIR-REG-001"
+      ],
+      "reviewer_opus": [
+        "FAIL",
+        "MOD-POWER-001"
+      ],
+      "reviewer_opus_cost": 0.5634842,
+      "reviewer_sonnet": [
+        "FAIL",
+        "MOD-POWER-001"
+      ],
+      "reviewer_sonnet_cost": 0.1530112
+    },
+    {
+      "mutation": "led_resistor_R9_10R",
+      "group": "circuit",
+      "expected": "CIR-LED-001",
+      "applied": true,
+      "deterministic": true,
+      "deterministic_checks": [
+        "CIR-LED-001"
+      ],
+      "reviewer_opus": [
+        "FAIL",
+        "MOD-VALUE-001"
+      ],
+      "reviewer_opus_cost": 0.4442062,
+      "reviewer_sonnet": [
+        "FAIL",
+        "MOD-VALUE-001"
+      ],
+      "reviewer_sonnet_cost": 0.26383080000000003
+    },
+    {
+      "mutation": "base_resistor_R6_10R",
+      "group": "circuit",
+      "expected": "CIR-BJT-001",
+      "applied": true,
+      "deterministic": true,
+      "deterministic_checks": [
+        "CIR-BJT-001"
+      ],
+      "reviewer_opus": [
+        "FAIL",
+        "MOD-VALUE-001"
+      ],
+      "reviewer_opus_cost": 0.511439,
+      "reviewer_sonnet": [
+        "FAIL",
+        "MOD-VALUE-001"
+      ],
+      "reviewer_sonnet_cost": 0.24265440000000005
+    },
+    {
+      "mutation": "cap_C1_rated_4V",
+      "group": "circuit",
+      "expected": "KH-VD-001",
+      "applied": true,
+      "deterministic": true,
+      "deterministic_checks": [
+        "KH-VD-001"
+      ],
+      "reviewer_opus": [
+        "FAIL",
+        "MOD-POWER-001"
+      ],
+      "reviewer_opus_cost": 0.5118115999999999,
+      "reviewer_sonnet": [
+        "FAIL",
+        "MOD-POWER-001"
+      ],
+      "reviewer_sonnet_cost": 0.2115184
+    },
+    {
+      "mutation": "en_pullup_R1_10M",
+      "group": "circuit",
+      "expected": "MOD-VALUE-001",
+      "applied": true,
+      "deterministic": false,
+      "deterministic_checks": [],
+      "reviewer_opus": [
+        "FAIL",
+        "MOD-STRAP-001"
+      ],
+      "reviewer_opus_cost": 0.46907920000000003,
+      "reviewer_sonnet": [
+        "FAIL",
+        "MOD-STRAP-001"
+      ],
+      "reviewer_sonnet_cost": 0.23732840000000002
+    },
+    {
+      "mutation": "fuse_F1_50A",
+      "group": "circuit",
+      "expected": "MOD-PROT-001",
+      "applied": true,
+      "deterministic": false,
+      "deterministic_checks": [],
+      "reviewer_opus": [
+        "FAIL",
+        "MOD-PROT-001"
+      ],
+      "reviewer_opus_cost": 0.5499466,
+      "reviewer_sonnet": [
+        "FAIL",
+        "MOD-PROT-001"
+      ],
+      "reviewer_sonnet_cost": 0.27991520000000003
+    },
+    {
+      "mutation": "pinmap_pad_renumbered",
+      "group": "layout",
+      "expected": "PCB-PINMAP-001",
+      "applied": true,
+      "deterministic": true,
+      "deterministic_checks": [
+        "PCB-PINMAP-001"
+      ]
+    }
+  ]
+}

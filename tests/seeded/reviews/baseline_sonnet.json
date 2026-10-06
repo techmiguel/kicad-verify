@@ -1,0 +1,258 @@
+{
+ "tool": "kicad-verify",
+ "kind": "review",
+ "time": "2026-10-06T19:53:50+00:00",
+ "design_hash": "493b7e80bc0f7d7bca257f8f4d363875993a9253",
+ "reviewer": {
+  "model": "sonnet",
+  "duration_s": 52.3,
+  "returncode": 0,
+  "cost_usd": 0.223124,
+  "num_turns": 7,
+  "is_error": false,
+  "models": [
+   "claude-sonnet-5-5"
+  ]
+ },
+ "overall": "FAIL",
+ "requirements": [
+  {
+   "id": "MOD-PINOUT-001",
+   "model_verdict": "PASS",
+   "status": "PASS",
+   "summary": "ESP-12F, AMS1117 and HLK-PM01 pin tables match the datasheets as far as I could check. The Omron G5RL datasheet text was not extracted, and J3 has a TX/RX labelling ambiguity (see extra findings).",
+   "evidence_ok": 2,
+   "evidence_rejected": [
+    "datasheets_text/esp-wroom-02_datasheet_en.txt: quote shorter than 8 characters"
+   ],
+   "evidence": [
+    {
+     "file": "design.json",
+     "locator": "pin_tables.U2 pin 16/17/18",
+     "quote": "\"name\": \"GPIO15\"",
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "file": "datasheets_text/esp-wroom-02_datasheet_en.txt",
+     "locator": "Pin Description",
+     "quote": "6 IO15",
+     "valid": false,
+     "why": "quote shorter than 8 characters"
+    },
+    {
+     "file": "design.json",
+     "locator": "pin_tables.U1",
+     "quote": "\"name\": \"VO\"",
+     "valid": true,
+     "why": "ok"
+    }
+   ]
+  },
+  {
+   "id": "MOD-STRAP-001",
+   "model_verdict": "PASS",
+   "status": "PASS",
+   "summary": "GPIO15 is pulled down by R5, GPIO2 is pulled up by R4, GPIO0 is pulled up by R3 with SW1 to GND for download, and EN and RST are pulled up by R1 and R2. This matches the datasheet strapping levels.",
+   "evidence_ok": 2,
+   "evidence_rejected": [
+    "design.json: quote shorter than 8 characters"
+   ],
+   "evidence": [
+    {
+     "file": "datasheets_text/esp-wroom-02_datasheet_en.txt",
+     "locator": "Pin Description IO15",
+     "quote": "Pull down.",
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "file": "datasheets_text/esp-wroom-02_datasheet_en.txt",
+     "locator": "Pin Description IO0",
+     "quote": "•Flash boot: ﬂoating or pull up.",
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "file": "design.json",
+     "locator": "nets./GPIO15",
+     "quote": "\"R5.1\"",
+     "valid": false,
+     "why": "quote shorter than 8 characters"
+    }
+   ]
+  },
+  {
+   "id": "MOD-POWER-001",
+   "model_verdict": "WARN",
+   "status": "WARN",
+   "summary": "Rail current budget is adequate. The HLK-PM01 supplies 5 V and the ESP8266 needs about 0.3 A plus roughly 80 mA for the relay coil. The AMS1117 input is far below its 15 V limit. Both AMS1117 caps are ceramic, but the datasheet calls for 22 µF solid tantalum on the output for stability.",
+   "evidence_ok": 2,
+   "evidence_rejected": [],
+   "evidence": [
+    {
+     "file": "datasheets_text/ams1117.txt",
+     "locator": "Stability",
+     "quote": "The addition of  22 µ F solid tantalum on the output will ensure",
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "file": "design.json",
+     "locator": "components C4",
+     "quote": "\"footprint\": \"Capacitor_SMD:C_0805_2012Metric\"",
+     "valid": true,
+     "why": "ok"
+    }
+   ]
+  },
+  {
+   "id": "MOD-PROT-001",
+   "model_verdict": "FAIL",
+   "status": "FAIL",
+   "summary": "RV1 is a 07D221K varistor. The 221 code means a 220 V varistor, which is rated about 140 Vac and cannot sit across 230 Vac mains. It will conduct and overheat, and the T500mA fuse is the only thing protecting it. A 07D471K (300 Vac) is needed.",
+   "evidence_ok": 2,
+   "evidence_rejected": [
+    "design.json: quote shorter than 8 characters"
+   ],
+   "evidence": [
+    {
+     "file": "design.json",
+     "locator": "components RV1",
+     "quote": "\"value\": \"07D221K\"",
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "file": "design.json",
+     "locator": "components F1",
+     "quote": "\"value\": \"T500mA 250V\"",
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "file": "design.json",
+     "locator": "nets./N",
+     "quote": "\"RV1.2\"",
+     "valid": false,
+     "why": "quote shorter than 8 characters"
+    }
+   ]
+  },
+  {
+   "id": "MOD-VALUE-001",
+   "model_verdict": "WARN",
+   "status": "WARN",
+   "summary": "Most values are reasonable: R6 1k base drive, R7 10k pull-down, R8 and R9 LED resistors, and the 10k pull-ups. The RV1 voltage rating is wrong (see MOD-PROT-001). The 22 µF ceramic output cap on the AMS1117 is outside the datasheet's recommendation.",
+   "evidence_ok": 2,
+   "evidence_rejected": [
+    "design.json: quote shorter than 8 characters"
+   ],
+   "evidence": [
+    {
+     "file": "design.json",
+     "locator": "components R8",
+     "quote": "\"value\": \"1k\"",
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "file": "design.json",
+     "locator": "components RV1",
+     "quote": "\"value\": \"07D221K\"",
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "file": "design.json",
+     "locator": "nets.Net-(Q1-B)",
+     "quote": "\"R7.1\"",
+     "valid": false,
+     "why": "quote shorter than 8 characters"
+    }
+   ]
+  },
+  {
+   "id": "MOD-FOOT-001",
+   "model_verdict": "WARN",
+   "status": "WARN",
+   "summary": "The footprints cannot be confirmed against the ordered parts. K1 is a G5RL-1A-E-HR on the G2RL-1A-E footprint, and the Omron datasheet text is unavailable. F1 uses the Littelfuse 395 footprint with LCSC C2762401, which is unconfirmed. J3 is a Conn_01x06 symbol on a 2x03 footprint. The verify report lists 17 footprints awaiting approval.",
+   "evidence_ok": 3,
+   "evidence_rejected": [],
+   "evidence": [
+    {
+     "file": "design.json",
+     "locator": "components K1",
+     "quote": "\"footprint\": \"Relay_THT:Relay_SPST_Omron_G2RL-1A-E\"",
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "file": "design.json",
+     "locator": "components K1",
+     "quote": "\"value\": \"G5RL-1A-E-HR DC5\"",
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "file": "design.json",
+     "locator": "components J3",
+     "quote": "PinHeader_2x03_P2.54mm_Vertical",
+     "valid": true,
+     "why": "ok"
+    }
+   ]
+  }
+ ],
+ "extra_findings": [
+  {
+   "key": "extra-0",
+   "text": "warning: J3 PROG labels /TXD and /RXD from the module's perspective. They connect straight to U2 TXD and RXD with no crossover. A standard USB-serial adapter's TX must go to the module RXD, so the header pinout needs a note or a swap. J3 also ties +5V from the programmer to the PS1 output net, which risks backfeeding PS1.",
+   "status": "WARN",
+   "evidence": [
+    {
+     "file": "design.json",
+     "locator": "nets./TXD",
+     "quote": "\"U2.22(GPIO1/TXD_22)\"",
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "file": "design.json",
+     "locator": "nets.+5V",
+     "quote": "\"J3.2(Pin_2_2)\"",
+     "valid": true,
+     "why": "ok"
+    }
+   ]
+  },
+  {
+   "key": "extra-1",
+   "text": "warning: The relay load current from J1 L_IN/L_OUT runs through K1 without passing through F1. F1 only protects the PS1 branch. The 16 A load needs external protection. [unverified]",
+   "status": "WARN",
+   "evidence": [
+    {
+     "file": "design.json",
+     "locator": "nets./L_IN",
+     "quote": "\"K1.13\"",
+     "valid": false,
+     "why": "quote shorter than 8 characters"
+    }
+   ]
+  },
+  {
+   "key": "extra-2",
+   "text": "warning: The BOM has no MPNs, only LCSC codes. Some parts, such as F1 and RV1, have unverified LCSC numbers.",
+   "status": "WARN",
+   "evidence": [
+    {
+     "file": "design.json",
+     "locator": "components F1",
+     "quote": "\"LCSC\": \"C2762401\"",
+     "valid": true,
+     "why": "ok"
+    }
+   ]
+  }
+ ]
+}

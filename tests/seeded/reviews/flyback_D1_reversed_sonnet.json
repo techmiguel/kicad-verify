@@ -1,0 +1,212 @@
+{
+ "tool": "kicad-verify",
+ "kind": "review",
+ "time": "2026-10-06T20:01:53+00:00",
+ "design_hash": "a73c82dff79e671ddeb9e9ece5f03137eb4ac698",
+ "reviewer": {
+  "model": "sonnet",
+  "duration_s": 60.5,
+  "returncode": 0,
+  "cost_usd": 0.1414956,
+  "num_turns": 4,
+  "is_error": false,
+  "models": [
+   "claude-sonnet-5-5"
+  ]
+ },
+ "overall": "FAIL",
+ "requirements": [
+  {
+   "id": "MOD-PINOUT-001",
+   "model_verdict": "WARN",
+   "status": "WARN",
+   "summary": "ESP-12F, AMS1117, Q1 (B/E/C), HLK-PM01 and relay pin assignments look plausible from the pin tables. However, relay-coil flyback diode D1 is wired backwards (anode on +5V, cathode on the transistor collector). J3 uses a 1x06 symbol on a 2x03 footprint, so physical pin numbering may not match. No local datasheet text was available to confirm the pinouts.",
+   "evidence_ok": 2,
+   "evidence_rejected": [],
+   "evidence": [
+    {
+     "file": "verification/pcb/review/bundle/design.json",
+     "locator": "nets./COIL_N",
+     "quote": "\"D1.1(K_1)\",",
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "file": "verification/pcb/review/bundle/design.json",
+     "locator": "J3 footprint",
+     "quote": "PinHeader_2x03_P2.54mm_Vertical",
+     "valid": true,
+     "why": "ok"
+    }
+   ]
+  },
+  {
+   "id": "MOD-STRAP-001",
+   "model_verdict": "PASS",
+   "status": "FAIL",
+   "summary": "Boot straps are correct for ESP-12F normal boot. GPIO15 is pulled low by R5, GPIO2 is pulled high by R4, GPIO0 is pulled high by R3 with a button to GND, and EN and RST are pulled high by R1 and R2. The relay output on GPIO5 and the LED on GPIO4 are not strapping pins.",
+   "evidence_ok": 0,
+   "evidence_rejected": [
+    "verification/pcb/review/bundle/design.json: quote shorter than 8 characters",
+    "verification/pcb/review/bundle/design.json: quote shorter than 8 characters",
+    "verification/pcb/review/bundle/design.json: quote shorter than 8 characters"
+   ],
+   "evidence": [
+    {
+     "file": "verification/pcb/review/bundle/design.json",
+     "locator": "nets./GPIO15",
+     "quote": "\"R5.1\",",
+     "valid": false,
+     "why": "quote shorter than 8 characters"
+    },
+    {
+     "file": "verification/pcb/review/bundle/design.json",
+     "locator": "nets./GPIO2",
+     "quote": "\"R4.2\",",
+     "valid": false,
+     "why": "quote shorter than 8 characters"
+    },
+    {
+     "file": "verification/pcb/review/bundle/design.json",
+     "locator": "nets./EN",
+     "quote": "\"R1.2\",",
+     "valid": false,
+     "why": "quote shorter than 8 characters"
+    }
+   ]
+  },
+  {
+   "id": "MOD-POWER-001",
+   "model_verdict": "WARN",
+   "status": "WARN",
+   "summary": "Rail budget looks adequate: the HLK-PM01 (5 V, 3 W) feeds the relay coil and an AMS1117-3.3 that powers the ESP-12F. No datasheet text is local to confirm ratings. The relay-coil flyback diode is reversed, which would short the 5V rail whenever Q1 turns on (see extra findings).",
+   "evidence_ok": 2,
+   "evidence_rejected": [],
+   "evidence": [
+    {
+     "file": "verification/pcb/review/bundle/design.json",
+     "locator": "U1",
+     "quote": "\"value\": \"AMS1117-3.3\",",
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "file": "verification/pcb/review/bundle/design.json",
+     "locator": "nets.+5V",
+     "quote": "\"D1.2(A_2)\",",
+     "valid": true,
+     "why": "ok"
+    }
+   ]
+  },
+  {
+   "id": "MOD-PROT-001",
+   "model_verdict": "FAIL",
+   "status": "FAIL",
+   "summary": "Varistor RV1 is a 07D221K, which is about 140 Vac rated (220 V varistor voltage). That is too low for 230 Vac mains: it will conduct continuously and overheat or fail. A 07D471K (about 300 Vac) is needed. The T500mA fuse F1 on the PSU branch is acceptable.",
+   "evidence_ok": 2,
+   "evidence_rejected": [],
+   "evidence": [
+    {
+     "file": "verification/pcb/review/bundle/design.json",
+     "locator": "RV1",
+     "quote": "\"value\": \"07D221K\",",
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "file": "verification/pcb/review/bundle/design.json",
+     "locator": "F1",
+     "quote": "\"value\": \"T500mA 250V\",",
+     "valid": true,
+     "why": "ok"
+    }
+   ]
+  },
+  {
+   "id": "MOD-VALUE-001",
+   "model_verdict": "WARN",
+   "status": "WARN",
+   "summary": "Resistor values are reasonable: the pull-ups are 10k, the LED resistors are 1k and 220R, and the base drive is 1k with a 10k pull-down. The varistor rating is wrong for mains (see MOD-PROT-001).",
+   "evidence_ok": 2,
+   "evidence_rejected": [],
+   "evidence": [
+    {
+     "file": "verification/pcb/review/bundle/design.json",
+     "locator": "R6",
+     "quote": "\"value\": \"1k\",",
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "file": "verification/pcb/review/bundle/design.json",
+     "locator": "RV1",
+     "quote": "\"value\": \"07D221K\",",
+     "valid": true,
+     "why": "ok"
+    }
+   ]
+  },
+  {
+   "id": "MOD-FOOT-001",
+   "model_verdict": "WARN",
+   "status": "WARN",
+   "summary": "Relay K1 is a G5RL-1A-E but uses the Omron G2RL-1A-E footprint, which may not match its pin pitch. The ESP-12F uses the ESP-12E footprint (usually compatible). J3 has a 2x03 footprint against a 1x06 symbol. No datasheet is local to verify any of these.",
+   "evidence_ok": 2,
+   "evidence_rejected": [],
+   "evidence": [
+    {
+     "file": "verification/pcb/review/bundle/design.json",
+     "locator": "K1",
+     "quote": "Relay_THT:Relay_SPST_Omron_G2RL-1A-E",
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "file": "verification/pcb/review/bundle/design.json",
+     "locator": "K1 value",
+     "quote": "\"value\": \"G5RL-1A-E-HR DC5\",",
+     "valid": true,
+     "why": "ok"
+    }
+   ]
+  }
+ ],
+ "extra_findings": [
+  {
+   "key": "extra-0",
+   "text": "error: Flyback diode D1 is reversed. Its anode is on +5V and its cathode is on the relay coil/Q1 collector node (/COIL_N). When Q1 turns on, D1 is forward biased and shorts +5V to GND, and the relay-coil kick is not clamped. The cathode must go to +5V and the anode to /COIL_N.",
+   "status": "FAIL",
+   "evidence": [
+    {
+     "file": "verification/pcb/review/bundle/design.json",
+     "locator": "nets./COIL_N",
+     "quote": "\"D1.1(K_1)\",",
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "file": "verification/pcb/review/bundle/design.json",
+     "locator": "nets.+5V",
+     "quote": "\"D1.2(A_2)\",",
+     "valid": true,
+     "why": "ok"
+    }
+   ]
+  },
+  {
+   "key": "extra-1",
+   "text": "warning: J3 PROG exposes +5V (pin 2) while PS1 also drives +5V. Connecting a USB-serial adapter that supplies 5V at the same time would back-feed or contend with the HLK-PM01 output.",
+   "status": "WARN",
+   "evidence": [
+    {
+     "file": "verification/pcb/review/bundle/design.json",
+     "locator": "J3 pin 2",
+     "quote": "\"net\": \"+5V\"",
+     "valid": true,
+     "why": "ok"
+    }
+   ]
+  }
+ ]
+}

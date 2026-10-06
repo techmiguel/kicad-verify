@@ -1,0 +1,246 @@
+{
+ "tool": "kicad-verify",
+ "kind": "review",
+ "time": "2026-10-06T20:08:56+00:00",
+ "design_hash": "79b654a1c1a6691ec314fe58c4100fac5535312c",
+ "reviewer": {
+  "model": "opus",
+  "duration_s": 146.0,
+  "returncode": 0,
+  "cost_usd": 0.4442062,
+  "num_turns": 7,
+  "is_error": false,
+  "models": [
+   "claude-opus-5-5"
+  ]
+ },
+ "overall": "FAIL",
+ "requirements": [
+  {
+   "id": "MOD-PINOUT-001",
+   "model_verdict": "WARN",
+   "status": "WARN",
+   "summary": "AMS1117 SOT-223 pinout (1=GND, 2=VOUT, 3=VIN) matches U1 nets, and the ESP-12F strap/UART pin nets look right. The ESP-12F module pinout, HLK-PM01 and G5RL relay pin numbers could not be checked against a datasheet: no ESP-12F/HLK-PM01 datasheet is in the project, and the Omron G5RL PDF failed text extraction.",
+   "evidence_ok": 3,
+   "evidence_rejected": [],
+   "evidence": [
+    {
+     "file": "datasheets_text/ams1117.txt",
+     "locator": "page 1",
+     "quote": "1- Ground/Adjust",
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "file": "design.json",
+     "locator": "pin_tables.U1 pin 3",
+     "quote": "\"name\": \"VI\"",
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "file": "datasheets.json",
+     "locator": "local_files omron_g5rl.pdf",
+     "quote": "cryptography>=3.1 is required for AES algorithm",
+     "valid": true,
+     "why": "ok"
+    }
+   ]
+  },
+  {
+   "id": "MOD-STRAP-001",
+   "model_verdict": "PASS",
+   "status": "PASS",
+   "summary": "GPIO15 is pulled down (R5 to GND). GPIO0 and GPIO2 are pulled up to +3V3 (R3, R4). EN is pulled up through R1 with C7. RST is pulled up through R2 with C8. This matches the WROOM-02/ESP8266 strapping table for flash boot.",
+   "evidence_ok": 2,
+   "evidence_rejected": [
+    "design.json: quote shorter than 8 characters",
+    "design.json: quote shorter than 8 characters"
+   ],
+   "evidence": [
+    {
+     "file": "datasheets_text/esp-wroom-02_datasheet_en.txt",
+     "locator": "page 9",
+     "quote": "GPIO15; MTDO; HSPICS; UART0_RTS \nPull down.",
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "file": "datasheets_text/esp-wroom-02_datasheet_en.txt",
+     "locator": "page 9",
+     "quote": "•Flash boot: ﬂoating or pull up.",
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "file": "design.json",
+     "locator": "nets./GPIO15",
+     "quote": "\"R5.1\"",
+     "valid": false,
+     "why": "quote shorter than 8 characters"
+    },
+    {
+     "file": "design.json",
+     "locator": "nets./EN",
+     "quote": "\"R1.2\"",
+     "valid": false,
+     "why": "quote shorter than 8 characters"
+    }
+   ]
+  },
+  {
+   "id": "MOD-POWER-001",
+   "model_verdict": "FAIL",
+   "status": "FAIL",
+   "summary": "Rails: 5 V in to the AMS1117 is under its 15 V absolute maximum, and the 1.7 V headroom is above the 1.3 V maximum dropout. The defect is that GPIO4 drives D3 through only 10 Ω. A blue LED with Vf≈3.0 V at 3.3 V would pull about 30 mA. That is well above the ESP8266 I/O IMAX of 12 mA, so the GPIO is overloaded.",
+   "evidence_ok": 4,
+   "evidence_rejected": [],
+   "evidence": [
+    {
+     "file": "datasheets_text/0a-esp8266ex_datasheet_en.txt",
+     "locator": "page 24, Table 5-1",
+     "quote": "IMAX - - - 12 mA",
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "file": "design.json",
+     "locator": "components R9",
+     "quote": "\"value\": \"10\"",
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "file": "verify_report.json",
+     "locator": "CIR-LED-001",
+     "quote": "D3: 30.0 mA through R9 (10) from 3.3 V, Vf≈3.0 V > 20.0 mA",
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "file": "datasheets_text/ams1117.txt",
+     "locator": "page 2",
+     "quote": "Input Voltage               15V",
+     "valid": true,
+     "why": "ok"
+    }
+   ]
+  },
+  {
+   "id": "MOD-PROT-001",
+   "model_verdict": "WARN",
+   "status": "WARN",
+   "summary": "F1 (T500mA) fuses only the HLK-PM01 input, which is reasonable for a 3 W module, and RV1 sits after the fuse. However, RV1 is 07D221K: a 220 V clamp with roughly 140 Vac MCOV. On 230 Vac mains it would conduct continuously and fail. The mains voltage is not stated, so this cannot be confirmed. The varistor and PS1 datasheets are absent.",
+   "evidence_ok": 2,
+   "evidence_rejected": [],
+   "evidence": [
+    {
+     "file": "design.json",
+     "locator": "components RV1",
+     "quote": "\"value\": \"07D221K\"",
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "file": "design.json",
+     "locator": "components F1",
+     "quote": "\"value\": \"T500mA 250V\"",
+     "valid": true,
+     "why": "ok"
+    }
+   ]
+  },
+  {
+   "id": "MOD-VALUE-001",
+   "model_verdict": "FAIL",
+   "status": "FAIL",
+   "summary": "R9 = 10 Ω is far too low as the series resistor for blue LED D3 driven from GPIO4 at 3.3 V. It gives about 30 mA, which exceeds the LED's typical 20 mA rating and the 12 mA GPIO limit. It needs to be about 100–220 Ω. The other values are reasonable: R6 1 k base, R7 10 k base pulldown, R8 1 k for the red LED, and 10 k pull-ups.",
+   "evidence_ok": 3,
+   "evidence_rejected": [],
+   "evidence": [
+    {
+     "file": "design.json",
+     "locator": "nets./WIFI_LED",
+     "quote": "\"R9.1\",\n    \"U2.19(GPIO4_19)\"",
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "file": "verify_report.json",
+     "locator": "CIR-LED-001",
+     "quote": "D3: 30.0 mA through R9 (10) from 3.3 V, Vf≈3.0 V > 20.0 mA",
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "file": "datasheets_text/0a-esp8266ex_datasheet_en.txt",
+     "locator": "page 24",
+     "quote": "IMAX - - - 12 mA",
+     "valid": true,
+     "why": "ok"
+    }
+   ]
+  },
+  {
+   "id": "MOD-FOOT-001",
+   "model_verdict": "NOT_VERIFIABLE",
+   "status": "WARN",
+   "summary": "The ordered parts' package drawings are not available: there are no datasheets for the LCSC parts, and the G5RL PDF could not be read. K1 is a G5RL-1A-E-HR but uses the G2RL-1A-E symbol and footprint, so its pin compatibility is unconfirmed. U2 is an ESP-12F on the ESP-12E footprint, which is conventionally the same pad pattern. No footprints are approved yet (PCB-FOOT-001 WARN).",
+   "evidence_ok": 2,
+   "evidence_rejected": [],
+   "evidence": [
+    {
+     "file": "design.json",
+     "locator": "components K1",
+     "quote": "\"footprint\": \"Relay_THT:Relay_SPST_Omron_G2RL-1A-E\"",
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "file": "verify_report.json",
+     "locator": "PCB-FOOT-001",
+     "quote": "no approved-footprint list; 17 footprints awaiting approval",
+     "valid": true,
+     "why": "ok"
+    }
+   ]
+  }
+ ],
+ "extra_findings": [
+  {
+   "key": "extra-0",
+   "text": "warning: The 07D221K varistor (≈140 Vac continuous rating) sits across L–N after the fuse. If the product is used on 230 Vac mains, it is undersized: a 07D471K-class part would be needed. In this position, a varistor failure would blow F1 and take the supply down.",
+   "status": "WARN",
+   "evidence": [
+    {
+     "file": "design.json",
+     "locator": "nets./L_F",
+     "quote": "\"RV1.1\"",
+     "valid": false,
+     "why": "quote shorter than 8 characters"
+    },
+    {
+     "file": "design.json",
+     "locator": "components RV1",
+     "quote": "\"value\": \"07D221K\"",
+     "valid": true,
+     "why": "ok"
+    }
+   ]
+  },
+  {
+   "key": "extra-1",
+   "text": "warning: The relay load path (L_IN to K1 to L_OUT) has no fuse; F1 protects only PS1. The 16 A relay contact and its PCB traces depend on upstream protection.",
+   "status": "WARN",
+   "evidence": [
+    {
+     "file": "design.json",
+     "locator": "nets./L_IN",
+     "quote": "\"F1.1\",\n    \"J1.3(Pin_3_3)\",\n    \"K1.13\"",
+     "valid": true,
+     "why": "ok"
+    }
+   ]
+  }
+ ]
+}

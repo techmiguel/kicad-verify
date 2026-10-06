@@ -1,0 +1,10 @@
+# Project requirements. Inherits kicad-verify's base requirements (see `kicadverify requirements`).
+params: {}
+  # min_power_width_mm: 0.4
+  # net_voltages: {"/VIN": 12}
+  # mounting_holes: {drill_mm: 3.2, tol_mm: 0.1, expected: [[10, 10], [90, 10]]}
+  # interface: {step_user_origin: "100x149mm"}
+requirements: []
+  # - {id: PRJ-001, method: model, text: "Relay contacts rated for 10 A at 250 VAC"}
+disable: []
+  # - PCB-PINS-001
