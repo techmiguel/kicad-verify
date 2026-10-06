@@ -19,6 +19,7 @@ Defects seeded into a real board that was fabricated and assembled ([smartRele](
 | LED resistor 220 Ω → 10 Ω, transistor base resistor 1 kΩ → 10 Ω | CIR-LED-001, CIR-BJT-001 |
 | Electrolytic rated 4 V on a 5 V rail | KH-* (kicad-happy VD-001) |
 | Footprint pad renumbered | PCB-PINMAP-001, PCB-PINS-001 |
+| Resistor value changed in the schematic only (PCB and BOM keep the old one) | PCB-PARITY-001 |
 | Board clearance rules relaxed below the fab's minimum spacing (DRC stays clean) | FAB-RULES-001 only |
 | 0.1 mm track | FAB-DFM-001, PCB-DRC-001 |
 | Gerbers exported before a track moved; drill changed or hole moved after export | FAB-STALE-001, FAB-DRILL-001 |
@@ -26,7 +27,7 @@ Defects seeded into a real board that was fabricated and assembled ([smartRele](
 | Track inside a mounting-hole washer area | PCB-KEEPOUT-001 |
 | EN pull-up 10 kΩ → 10 MΩ, fuse 500 mA → 50 A | none deterministic: reviewer (MOD-*), release gate |
 
-**Fab gate: 18 of 20 seeded defects block it**; the unmodified board passes it. The two that do not are judgement calls with no rule, caught by the independent reviewer at the release gate (Opus 5.5 and Sonnet 5.5 both caught them, ≈$0.54 / $0.21 per review; caveats in the results page).
+**Fab gate: 19 of 21 seeded defects block it**; the unmodified board passes it. The two that do not are judgement calls with no rule, caught by the independent reviewer at the release gate (Opus 5.5 and Sonnet 5.5 both caught them, ≈$0.54 / $0.21 per review; caveats in the results page).
 
 ## How it works
 

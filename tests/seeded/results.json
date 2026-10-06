@@ -397,6 +397,21 @@
         "PCB-DRC-001"
       ],
       "fab_gate_blocked": true
+    },
+    {
+      "mutation": "value_R9_schematic_only",
+      "group": "layout",
+      "expected": "PCB-PARITY-001",
+      "applied": true,
+      "deterministic": true,
+      "deterministic_checks": [
+        "KH-XV-002",
+        "PCB-PARITY-001"
+      ],
+      "requirements_failed": [
+        "PCB-PARITY-001"
+      ],
+      "fab_gate_blocked": true
     }
   ]
 }
