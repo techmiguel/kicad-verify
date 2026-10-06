@@ -13,12 +13,24 @@ def _cmd(event):
     return f'"{sys.executable}" -m {MARK} {event}'
 
 
+def _cli_path():
+    """The kicadverify executable next to this interpreter (it may not be on PATH)."""
+    bindir = Path(sys.executable).parent
+    for name in ("kicadverify.exe", "kicadverify"):
+        if (bindir / name).exists():
+            return str(bindir / name)
+    return shutil.which("kicadverify") or f'"{sys.executable}" -m kicadverify'
+
+
 def install(hooks=True):
     HOME.mkdir(exist_ok=True)
+    cli = _cli_path()
+    cmd = f'"{cli}"' if " " in cli and not cli.startswith('"') else cli
     for s in SKILLS.iterdir():
         dst = HOME / "skills" / s.name
         dst.mkdir(parents=True, exist_ok=True)
-        shutil.copy(s / "SKILL.md", dst / "SKILL.md")
+        text = (s / "SKILL.md").read_text(encoding="utf-8").replace("`kicadverify ", f"`{cmd} ")
+        (dst / "SKILL.md").write_text(text, encoding="utf-8")
     print(f"Skills installed: {', '.join(p.name for p in SKILLS.iterdir())}")
     if not hooks:
         return 0
