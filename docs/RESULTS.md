@@ -4,6 +4,8 @@ Fixture: [smartRele](https://github.com/techmiguel/smartRele) at commit `6053b84
 
 A layer catches a defect when it reports a new FAIL/WARN for it that the baseline did not have. For the reviewer, the finding must name the modified component (or value) and be new or more severe than on the baseline.
 
+**Scope of this evidence.** One board, 20 injected defects, one reviewer run per defect and model. It is a regression suite: it shows that each listed defect class is caught on this board and keeps it caught. It is not a benchmark of detection rates on other designs, and it does not measure the false-positive rate (see "Not measured here").
+
 **Deterministic checks: 18/20** defects caught. **Fab gate: 18/20** defects block it (the two that do not are judgement calls with no rule: they are the reviewer's job, at the release gate).
 
 Requirement-level run: the fixture is configured with the reference verification set in [tests/reference/rele](../tests/reference/rele) (fab profile, pins from the datasheets, mounting holes, approved footprints, waivers with reasons, three project assertions). On the unmodified board the fab gate passes; requirements FAILED at baseline: PCB-MODEL-001 (release gate only). "Requirements newly FAILED" lists the requirements whose verdict changed to FAILED with the defect.
@@ -54,7 +56,9 @@ Requirement-level run: the fixture is configured with the reference verification
 - The reviewer sees the deterministic report. For the six defects the gate already catches, it may have confirmed the gate's finding rather than found it alone.
 - In the fuse case the BOM and README still said T500mA, so the inconsistency helped. A value that is wrong everywhere is harder to spot.
 - False positives on the unmodified board: Opus 5.5 gave none. Sonnet 5.5 failed the 07D221K varistor as if the mains were 230 VAC. After design intent (README, `design_intent.md`) was added to the bundle, two more Sonnet runs gave no FAIL.
-- A PASS without a quote that kicad-verify finds in the cited file becomes FAIL. This strictness also produced one FAIL on an unrelated requirement, where the model claimed PASS without citing evidence.
+- These reviews were recorded with kicad-verify 0.1, where a PASS without a quote found in the cited file became FAIL (since 0.2 it is NOT_VERIFIABLE). That strictness produced one FAIL on an unrelated requirement, where the model claimed PASS without citing evidence.
+- Independence of the evidence (0.4 rule: quotes from `verify_report.json`, `kicad_happy.json` and other verifiers' conclusions do not count). Re-checking the recorded reviews: none of the 105 requirement verdicts with valid evidence rested only on derived sources; 3 extra error findings did (Opus on flyback_D1_reversed and led_D2_reversed, Sonnet on led_D2_reversed), all repeating DRC/parity findings the gate already reports. Under 0.4 they are reported as unverified; no catch in the table depends on them.
+- A valid quote proves evidence integrity (the text exists in an independent source), not that the text supports the conclusion. The release gate keeps human sign-offs for that reason.
 
 ## Not measured here
 

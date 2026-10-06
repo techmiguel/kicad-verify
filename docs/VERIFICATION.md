@@ -70,11 +70,38 @@ requirement) still fails the gates.
 - Raw tool output is kept: `verification/pcb/reports/evidence/<board>.erc.json` and `.drc.json`, the
   netlist, the kicad-happy JSON.
 - Reviewer evidence is a verbatim quote, the cited file (hashed) and a locator; a quote not found in
-  the file is discarded and listed.
+  the file is discarded and listed. The cited file must be an independent source (see below).
 - Sign-offs record who, when, the outcome (`pass` or `--fail`), a note and the design hash.
 - Waived findings and coverage gaps stay in the report as deviations with reason, date, author and
   expiry. A waiver that no longer matches anything is reported as stale; an expired one stops
   applying.
+
+### What a reviewer verdict proves
+
+Each requirement verdict carries an `assurance` field naming what its VERIFIED means:
+
+| Method | Assurance | Proven by code |
+|---|---|---|
+| `auto` | `deterministic` | the property, over the stated coverage |
+| `model` | `evidence-integrity` | the quoted text exists verbatim in an independent source; NOT that it supports the conclusion |
+| `human` | `human-attestation` | a named person checked it for this design and policy |
+
+Evidence integrity is not a semantic proof. A reviewer that quotes "Operating range: 3.0-3.6 V"
+and concludes "5 V is acceptable" cites valid evidence for a wrong conclusion; no string check can
+catch that. Reviewer requirements therefore gate the release next to human sign-offs, never instead
+of them, and `explain` prints the quotes so a person can judge the reasoning.
+
+The reviewer's sources are classified by independence (`sources.json` in the review bundle):
+
+| Class | Files | Counts as evidence |
+|---|---|---|
+| primary | the project's `.kicad_sch` / `.kicad_pcb`, datasheets, design intent and context files | yes |
+| extracted | `design.json` (components, pin tables, nets exported from the schematic), `datasheets_text/`, `context/` | yes |
+| derived | `verify_report.json`, `kicad_happy.json`, `estimates.json` (inferred rail voltages), `requirements.json`, `datasheets.json`, anything under `verification/pcb/reports/`, `review/`, `release/`, `attestations/` | no |
+
+The reviewer reads the derived files to orient itself and to challenge the other verifiers, but a
+quote from them is discarded with the reason "derived source": a reviewer verdict must stand on
+what could have been read without them, so it is not a second copy of the deterministic gate.
 
 ## Gates
 
@@ -111,11 +138,15 @@ overriding it in the project with the source you checked:
 ## Release record
 
 `kicadverify release` runs the fab gate, the reviewer (or reuses the review on record for the same
-design hash and requirement set) and the release gate. When everything passes it writes
+design hash and review key) and the release gate. When everything passes it records the release
+state in `project.yaml`, writes the attestation and then
 `verification/pcb/release/manifest.json` (and an archived copy per design): the SHA-256 of every
-design file, fabrication output and verification config, the reports, the verdict of every
-requirement and the deviations accepted. `kicadverify audit` recomputes the hashes right before the
-files go to the fab and fails on any difference.
+design file, fabrication output and verification config, of the verification report, the review
+report, the attestation and its signature, the verdict of every requirement and the deviations
+accepted. The reports in `reports/` are rewritten by every later `verify`, so the manifest binds the
+copies archived next to it (`release/<date>-<design>/`, field `archived`). `kicadverify audit`
+recomputes every hash (files on disk and archived reports) right before the files go to the fab and
+fails on any difference.
 
 ## Provenance and attestations
 
@@ -125,19 +156,19 @@ block of `verify_report.json` (and the Provenance table of the Markdown report) 
 
 | | Identity | Changes when |
 |---|---|---|
-| Policy | SHA-256 over the effective policy, with one digest per component: requirements (normalised), params, gate policy, waivers, exclusions, fab profile, verifier registry, reviewer prompt, pins; plus the hash of every policy source file | any requirement, threshold, waiver, exclusion or profile value changes |
+| Policy | SHA-256 over the effective policy, with one digest per component: requirements (normalised), params, gate policy, waivers, exclusions, fab profile, verifier registry, reviewer prompt, pins, project (the verification inputs of `project.yaml`, such as the reviewer model); plus the hash of every policy source file | any requirement, threshold, waiver, exclusion or profile value changes |
 | Tools | kicad-verify version, digest of its own code and data and git commit; kicad-cli version and path; kicad-happy pinned tag and installed commit; Python, platform, CI variables | a tool or its build changes |
 | Artifacts | SHA-256 of every design file, fabrication output, datasheet and config file | any byte of an input changes |
 | Design intent | the `- Field: value` lines of `design_intent.md` (declared and empty fields) and the context files given to the reviewer | the intent or the context changes |
-| Review | the review key (requirements, intent, datasheets, prompt), the digest of every bundle file, the `claude` CLI version and the model that actually answered | a review input changes |
+| Review | the review key (requirements, intent, datasheets, prompt, requested model), the digest of every bundle file, the `claude` CLI version and the model that actually answered | a review input changes |
 
 Digests are computed over canonical JSON, so identical inputs give identical digests.
 
 The design intent is a requirement of its own, GEN-INTENT-001: each empty field of
 `design_intent.md` is an unchecked item, so an undeclared intent is NOT_VERIFIABLE at the release
 gate instead of being silently assumed. A review is reused only while the design hash and the review
-key are unchanged: editing the intent, a datasheet, a reviewed requirement or the reviewer prompt
-makes the reviewer requirements NOT_RUN until it runs again.
+key are unchanged: editing the intent, a datasheet, a reviewed requirement, the reviewer prompt or
+the reviewer model makes the reviewer requirements NOT_RUN until it runs again.
 
 `kicadverify verify --attest` (always on for `release`) writes an
 [in-toto Statement v1](https://in-toto.io/Statement/v1) to `verification/pcb/attestations/`:
@@ -167,8 +198,24 @@ counts: the requirement goes back to NOT_RUN with the components that changed na
 and the person signs again under the current policy. Entries written before 0.3 carry no policy
 digest and must be renewed.
 
-`project.yaml` is not an input of the verification (`release` writes the status into it), so it is
-not part of the subject.
+`project.yaml` mixes kinds of fields, and the split is explicit (`config.PROJECT_STATE_KEYS`, `PROJECT_LABEL_KEYS`):
+
+| Fields | Kind | Where it is bound |
+|---|---|---|
+| `status`, `release_design_hash` | release state, written by `release` after verifying | not in the policy; the file is hashed in the release manifest after it is written |
+| `name` | display label (defaults to the folder name) | nowhere: renaming the project must not void sign-offs |
+| everything else (`reviewer_model`, ...) | verification inputs | policy component `project`: changing the reviewer model invalidates sign-offs and the review |
+
+The file itself is not an attestation subject, because `release` writes it after the attestation's
+verification ran; its inputs are covered by the policy digest instead.
+
+### Identity, one mechanism
+
+Every identity is SHA-256 over content: the design hash (path and bytes of `.kicad_sch`,
+`.kicad_pcb`, `.kicad_pro`, `.kicad_dru`), artifact hashes, policy, intent and review digests. The
+Claude Code hooks use a change key built from the same per-file SHA-256 only to decide whether to
+run the checks again; it identifies nothing. The one SHA-1 left is the waiver key of a finding, a
+stable identifier written into `waivers.yaml`, not an integrity check.
 
 ## CI
 

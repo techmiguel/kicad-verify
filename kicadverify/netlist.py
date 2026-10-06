@@ -12,7 +12,7 @@ from .config import KICAD_CLI
 
 
 def _sch_signature(sch):
-    h = hashlib.sha1()
+    h = hashlib.sha256()
     for f in sorted(Path(sch).parent.glob("*.kicad_sch")):
         h.update(f.read_bytes())
     return h.hexdigest()

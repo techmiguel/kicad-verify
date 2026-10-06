@@ -199,8 +199,8 @@ checks:
     layer: review
     modes: [review]
     inputs: [review bundle, datasheets]
-    covers: Judgement requirements where a rule cannot decide; every quote is searched verbatim in the cited file
-    limits: Only what is in the bundle and project files (no web); non-deterministic; can share blind spots with the tools that generated the design
+    covers: Judgement requirements where a rule cannot decide; every quote is searched verbatim in the cited file, which must be an independent source (design files, datasheets, design intent), never another verifier's report
+    limits: Evidence integrity, not semantic proof (a valid quote does not prove the conclusion drawn from it); only what is in the bundle and project files (no web); non-deterministic; can share blind spots with the tools that generated the design
   SIGNOFF:
     title: Human sign-off bound to the design hash and the policy digest
     layer: human

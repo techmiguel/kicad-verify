@@ -164,17 +164,25 @@ def test_signoff_results(tmp_path):
 # ------------------------------------------------------------------ reviewer
 def test_judge_maps_to_verdicts(tmp_path):
     (tmp_path / "d.json").write_text("U1 VO +3V3 regulator output", encoding="utf-8")
-    reqs = [{"id": i} for i in "ABCDE"]
+    bdir = tmp_path / "verification" / "pcb" / "review" / "bundle"
+    bdir.mkdir(parents=True)
+    (bdir / "verify_report.json").write_text("CIR-REG-001 PASS regulator output ok", encoding="utf-8")
+    reqs = [{"id": i} for i in "ABCDEF"]
     raw = {"verdicts": [
         {"id": "A", "verdict": "PASS", "summary": "ok", "evidence": [{"file": "d.json", "quote": "U1 VO +3V3 regulator"}]},
         {"id": "B", "verdict": "PASS", "summary": "ok", "evidence": [{"file": "d.json", "quote": "invented quote here"}]},
         {"id": "C", "verdict": "FAIL", "summary": "bad", "evidence": []},
         {"id": "D", "verdict": "FAIL", "summary": "bad", "evidence": [{"file": "d.json", "quote": "regulator output"}]},
+        {"id": "E", "verdict": "PASS", "summary": "the gate says so",
+         "evidence": [{"file": "verify_report.json", "quote": "CIR-REG-001 PASS regulator output ok"}]},
     ], "extra_findings": []}
-    res, _, _ = review.judge(raw, reqs, tmp_path, tmp_path)
-    v = verdict([req(i, method="model") for i in "ABCDE"], res)
+    res, detail, _ = review.judge(raw, reqs, tmp_path, bdir)
+    v = verdict([req(i, method="model") for i in "ABCDEF"], res)
     assert {k: x["status"] for k, x in v.items()} == {
-        "A": VERIFIED, "B": NOT_VERIFIABLE, "C": NOT_VERIFIABLE, "D": FAILED, "E": NOT_VERIFIABLE}
+        "A": VERIFIED, "B": NOT_VERIFIABLE, "C": NOT_VERIFIABLE, "D": FAILED, "E": NOT_VERIFIABLE,
+        "F": NOT_VERIFIABLE}
+    assert "derived source" in next(d for d in detail if d["id"] == "E")["evidence_rejected"][0]
+    assert v["A"]["assurance"] == "evidence-integrity"
     quote = v["A"]["evidence"][0]["artifacts"][0]
     assert quote["quote"] == "U1 VO +3V3 regulator" and quote["sha256"]
 
@@ -338,6 +346,21 @@ def test_design_hash_includes_rules(tmp_path):
     h2 = config.design_hash(tmp_path)
     (tmp_path / "b.kicad_prl").write_text("ui state")
     assert h1 != h2 == config.design_hash(tmp_path)
+
+
+def test_change_key_is_content_based(tmp_path):
+    """The hooks re-run on a content change (rules and config included), not on a touch."""
+    import os
+    (tmp_path / "b.kicad_pcb").write_text("(kicad_pcb)")
+    config.init_project(tmp_path)
+    k1 = config.change_key(tmp_path)
+    st = (tmp_path / "b.kicad_pcb").stat()
+    os.utime(tmp_path / "b.kicad_pcb", (st.st_atime + 100, st.st_mtime + 100))
+    assert config.change_key(tmp_path) == k1 and len(k1) == 64
+    (tmp_path / "b.kicad_dru").write_text("(version 1)")
+    k2 = config.change_key(tmp_path)
+    (tmp_path / "verification" / "pcb" / "design_intent.md").write_text("- Purpose of the board: x\n")
+    assert len({k1, k2, config.change_key(tmp_path)}) == 3
 
 
 def test_init_ci_workflow(tmp_path):

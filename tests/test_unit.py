@@ -95,10 +95,33 @@ def test_waiver_silences_one_finding_only():
 
 
 def test_evidence_must_be_verbatim(tmp_path):
+    bdir = tmp_path / "verification" / "pcb" / "review" / "bundle"
+    bdir.mkdir(parents=True)
     (tmp_path / "f.txt").write_text('pin "EN" connected to\n  R1 pull-up', encoding="utf-8")
-    ok, _ = review.check_evidence({"file": "f.txt", "quote": "EN connected to R1 pull-up"}, tmp_path, tmp_path)
+    ok, _ = review.check_evidence({"file": "f.txt", "quote": "EN connected to R1 pull-up"}, tmp_path, bdir)
     assert ok
-    bad, why = review.check_evidence({"file": "f.txt", "quote": "EN connected to R2 pull-up"}, tmp_path, tmp_path)
+    bad, why = review.check_evidence({"file": "f.txt", "quote": "EN connected to R2 pull-up"}, tmp_path, bdir)
     assert not bad and "not found" in why
-    short, _ = review.check_evidence({"file": "f.txt", "quote": "EN"}, tmp_path, tmp_path)
+    short, _ = review.check_evidence({"file": "f.txt", "quote": "EN"}, tmp_path, bdir)
     assert not short
+
+
+def test_evidence_must_come_from_an_independent_source(tmp_path):
+    """A verbatim quote from another verifier's conclusions is not evidence (it would only repeat it)."""
+    bdir = tmp_path / "verification" / "pcb" / "review" / "bundle"
+    (bdir / "datasheets_text").mkdir(parents=True)
+    rep_dir = tmp_path / "verification" / "pcb" / "reports"
+    rep_dir.mkdir()
+    line = "U1 output 3.3 V on +3V3 rail"
+    for f in (bdir / "verify_report.json", bdir / "estimates.json", bdir / "kicad_happy.json",
+              rep_dir / "verify_report.json", bdir / "design.json", bdir / "datasheets_text" / "u1.txt",
+              tmp_path / "board.kicad_sch"):
+        f.write_text(line, encoding="utf-8")
+    ok = {f: review.check_evidence({"file": f, "quote": line}, tmp_path, bdir) for f in (
+        "verify_report.json", "estimates.json", "kicad_happy.json", "verification/pcb/reports/verify_report.json",
+        "design.json", "datasheets_text/u1.txt", "board.kicad_sch")}
+    assert {f for f, (valid, _) in ok.items() if valid} == {"design.json", "datasheets_text/u1.txt",
+                                                            "board.kicad_sch"}
+    assert "derived source" in ok["verify_report.json"][1] and "quote found" in ok["verify_report.json"][1]
+    assert review.independence(bdir / "design.json", tmp_path, bdir)[0] == "extracted"
+    assert review.independence(tmp_path / "board.kicad_sch", tmp_path, bdir)[0] == "primary"

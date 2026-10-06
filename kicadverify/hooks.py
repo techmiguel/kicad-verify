@@ -68,7 +68,7 @@ def post_tool(p):
     root, init = config.find_root(p.get("cwd") or os.getcwd())
     if root is None or not init:
         return 0
-    h = config.artifact_hash(root)
+    h = config.change_key(root)
     st = _state(root)
     if st.get("fast_hash") == h:
         return 0
@@ -86,7 +86,7 @@ def stop(p):
     root, init = config.find_root(p.get("cwd") or os.getcwd())
     if root is None or not init:
         return 0
-    h = config.artifact_hash(root)
+    h = config.change_key(root)
     st = _state(root)
     if st.get("verified_hash") == h or st.get("blocked_hash") == h:
         return 0

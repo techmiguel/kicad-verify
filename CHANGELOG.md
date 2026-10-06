@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.4.0 — 2026-10-06
+Closing the gaps between what the release record claims and what it checks.
+- `audit` now checks the reports bound by the release manifest. `release` archives the verification report, the review report, the attestation and its signature next to the manifest (`archived`), because `reports/` is rewritten by every later `verify`; `audit` recomputes their SHA-256.
+- `project.yaml` is split explicitly (`config.PROJECT_STATE_KEYS`): the release state (`status`, `release_design_hash`) stays out of the policy; `name` is a label; every other field (reviewer model, ...) is a verification input in the new policy component `project`.
+- The review key includes the requested reviewer model: a review made with another model than the configured one is not reused.
+- Reviewer evidence must come from an independent source. Quotes from `verify_report.json`, `kicad_happy.json`, the new `estimates.json` (rail voltages inferred by kicad-verify, moved out of `design.json`), `requirements.json`, `datasheets.json` or any kicad-verify output are discarded as "derived source"; the bundle carries `sources.json` with the classification. Re-checking the recorded seeded reviews: no requirement verdict depended on derived sources; 3 extra findings that only repeated gate findings now count as unverified.
+- Every requirement verdict carries `assurance`: `deterministic`, `evidence-integrity` (reviewer: the quotes exist verbatim in independent sources; the reasoning is not verified by code) or `human-attestation`. `explain` prints it.
+- One identity mechanism: the hooks' change key (`config.change_key`, formerly `artifact_hash`: SHA-1 over path, size and mtime) is SHA-256 over content, and so are the netlist cache and the board interface (`pcb_sha256`, schema `board-interface@2`). Waiver keys keep their SHA-1 form: they are identifiers stored in users' `waivers.yaml`, not integrity checks.
+- End-to-end tests of the release chain through the CLI (`tests/test_release_flow.py`): release writes manifest and attestation, blocked releases write nothing, audit detects changed reports and outputs, a changed `.kicad_dru` or policy invalidates sign-offs and the review, a missing verifier is NOT_RUN, missing fabrication outputs block the fab gate, package and runtime versions agree.
+- RESULTS.md states the scope of the seeded bank (a regression suite on one board, not a benchmark) and corrects the description of how an unproven PASS is mapped.
+- Breaking: the policy digest gains the `project` component and the reviewer prompt and verifier registry changed, so sign-offs and reviews from 0.3 must be renewed; `board_interface.json` renames `pcb_sha1` to `pcb_sha256`.
+
 ## 0.3.0 — 2026-10-06
 Provenance: the system can show exactly what it verified, what it could not verify, under which policy and tool versions, over which artifacts and against which design intent.
 - `provenance` block in every report: policy digest with one digest per component (requirements, params, gates, waivers, exclusions, fab profile, verifier registry, reviewer prompt, pins) and the hashed policy files; tools (kicad-verify version, code digest and git commit, kicad-cli, kicad-happy pinned tag and installed commit, Python, platform, CI variables); every artifact (design, fabrication, datasheets, config) with SHA-256; the design intent (declared and empty fields, context files). Markdown report gains a Provenance table.

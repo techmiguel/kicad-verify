@@ -25,6 +25,10 @@ METHODS = {"auto": "auto", "analysis": "auto", "check": "auto",
            "human": "human", "inspection": "human", "test": "human", "demonstration": "human"}
 METHOD_LABEL = {"auto": "analysis (deterministic check)", "model": "review (independent model, evidence re-checked)",
                 "human": "inspection/test (human sign-off)"}
+# What a VERIFIED means for each method. deterministic: a rule checked the property over the stated
+# coverage. evidence-integrity: the reviewer's quotes exist verbatim in independent sources; whether
+# they support its conclusion is NOT checked by code. human-attestation: a named person checked it.
+ASSURANCE = {"auto": "deterministic", "model": "evidence-integrity", "human": "human-attestation"}
 GATES = ("dev", "fab", "release")
 GATE_RANK = {"dev": 0, "fab": 1, "release": 2, "none": 99}
 DEFAULT_GATE = {"auto": "fab", "model": "release", "human": "release"}
@@ -196,7 +200,8 @@ def evaluate(reqs, results, root, mode="full", limit=25):
 
 def _verdict(req, matched, root, mode, limit):
     base = {"id": req["id"], "text": req.get("text", ""), "method": req["method"], "source": req["source"],
-            "verified_by": req["verified_by"], "acceptance": req["acceptance"], "gate": req["gate"]}
+            "verified_by": req["verified_by"], "acceptance": req["acceptance"], "gate": req["gate"],
+            "assurance": ASSURANCE.get(req["method"])}
     entry = registry_entry(req.get("verifier") or (req["verified_by"][0] if req["verified_by"] else ""))
     base["limits"] = (entry or {}).get("limits")
     if not matched:
@@ -233,7 +238,7 @@ def _verdict(req, matched, root, mode, limit):
 def _orphan_verdict(req, orphan, root, limit):
     base = {"id": req["id"], "text": req.get("text", ""), "method": req["method"], "source": req["source"],
             "verified_by": req["verified_by"], "acceptance": req["acceptance"], "gate": req["gate"],
-            "limits": "Only findings reported by the verifiers that ran", "coverage": None, "deviations": []}
+            "assurance": ASSURANCE.get(req["method"]), "limits": "Only findings reported by the verifiers that ran", "coverage": None, "deviations": []}
     bad = [r for r in orphan if r.status == FAIL or (req["acceptance"] == "no_findings" and r.status == WARN)]
     findings = [{"check": r.check_id, "key": v["key"], "text": v["text"]} for r in bad for v in r.violations]
     findings += [{"check": r.check_id, "key": "-", "text": r.detail} for r in bad if not r.violations]
