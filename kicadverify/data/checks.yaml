@@ -145,6 +145,13 @@ checks:
     inputs: [.kicad_pcb, fab profile]
     covers: Measured track width, via drill/pad/annular ring, plated-hole drill and annular ring, hole-to-hole distance, copper-to-board-edge distance (tracks, vias, pads, filled zones), board size, layer count and thickness
     limits: Copper-to-copper spacing (FAB-RULES-001 + DRC); arcs approximated by 16 segments; non-rectangular custom pads approximated by their bounding box; silkscreen and solder mask
+  ISO-SEP-001:
+    title: Copper separation across isolation barriers
+    layer: board
+    modes: [fast, full]
+    inputs: [.kicad_pcb, .kicad_pro (net classes), params.isolation.barriers]
+    covers: "Smallest copper-to-copper distance between the two sides of each declared barrier, per copper layer (tracks, vias, pads, zone fills). A straight-line distance at or above the requirement implies the PCB creepage and clearance meet it"
+    limits: "Component bodies and leads above the board, relay/transformer internals, distance through the insulation between layers, creepage around slots (a shortfall on a board with cutouts is an unchecked item, not a FAIL), pollution degree and material group (they are in the required value the project declares). kicad-verify ships no normative distances"
   FAB-GERBER-001:
     title: Mandatory Gerber layers
     layer: fab

@@ -21,12 +21,13 @@ Defects seeded into a real board that was fabricated and assembled ([smartRele](
 | Footprint pad renumbered | PCB-PINMAP-001, PCB-PINS-001 |
 | Board clearance rules relaxed below the fab's minimum spacing (DRC stays clean) | FAB-RULES-001 only |
 | 0.1 mm track | FAB-DFM-001, PCB-DRC-001 |
+| Ground copper 2.8 mm from mains (barrier declared at 4 mm) on a board without a mains DRC rule (DRC requirement stays VERIFIED) | ISO-SEP-001 only |
 | Gerbers exported before a track moved; drill changed or hole moved after export | FAB-STALE-001, FAB-DRILL-001 |
 | CPL at the body centre, part missing from the CPL or BOM | FAB-CPL-001, FAB-BOM-001 |
 | Track inside a mounting-hole washer area | PCB-KEEPOUT-001 |
 | EN pull-up 10 kΩ → 10 MΩ, fuse 500 mA → 50 A | none deterministic: reviewer (MOD-*), release gate |
 
-**Fab gate: 18 of 20 seeded defects block it**; the unmodified board passes it. The two that do not are judgement calls with no rule, caught by the independent reviewer at the release gate (Opus 5.5 and Sonnet 5.5 both caught them, ≈$0.54 / $0.21 per review; caveats in the results page).
+**Fab gate: 20 of 22 seeded defects block it**; the unmodified board passes it. The two that do not are judgement calls with no rule, caught by the independent reviewer at the release gate (Opus 5.5 and Sonnet 5.5 both caught them, ≈$0.54 / $0.21 per review; caveats in the results page).
 
 ## How it works
 
@@ -45,6 +46,7 @@ Defects seeded into a real board that was fabricated and assembled ([smartRele](
 - **Requirements** come from [the base set](kicadverify/data/requirements_base.yaml), each with its source, plus the project's own in `verification/pcb/requirements.yaml`. A project requirement can be verified by a declarative check (`pin_net`, `value`, `footprint`, `field`, `net_exists`, `board_size`, `layer_count`, `track_width`), by the reviewer or by a sign-off. Excluding a requirement needs a reason, and every report lists it.
 - **Coverage** is explicit: each verifier reports `checked/total` items and lists what it could not check (a polarized part on a net of unknown voltage, a Gerber layer never exported, a fab limit missing from the profile). Partial coverage is NOT_VERIFIABLE until a person checks those items and waives them with a reason. What each verifier never covers is printed next to every verdict ([docs/COVERAGE.md](docs/COVERAGE.md)).
 - **Evidence**: hashed input files, raw ERC/DRC JSON, the reviewer's verbatim quotes (searched in the cited file; a PASS without a valid quote is not accepted), sign-offs bound to the design hash and the policy digest, waivers with reason, author and expiry.
+- **Isolation barriers**: the project declares each barrier (mains to low voltage, line to neutral...) by net class or nets, with the distance its standard requires and that standard as the source; ISO-SEP-001 measures the copper separation on every layer. kicad-verify ships no normative distances.
 - **Gates**: `dev` blocks on confirmed defects (Claude Code hooks, after every edit); `fab` answers "ready to fabricate" and runs in CI without API keys; `release` adds the reviewer and the human sign-offs. A FAILED requirement with an error-level defect blocks every gate.
 - **Provenance**: every report records the policy digest (per component), the tools (kicad-verify code digest and commit, kicad-cli, kicad-happy commit), every artifact's SHA-256 and the design intent it was judged against. `--attest` writes an in-toto attestation, signable with an SSH key, that `check-attestation` re-verifies against the files on disk; `explain <REQ>` prints the chain of proof behind one verdict.
 - **Release record**: `release` writes a manifest with the SHA-256 of every design file, fabrication output, config and report, and every verdict. `audit` fails if anything changed before upload.

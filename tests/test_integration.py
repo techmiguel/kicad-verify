@@ -73,7 +73,8 @@ def test_reference_board_passes_fab_gate(board):
 
 
 @pytest.mark.parametrize("mutation,req", [("led_D2_reversed", "CIR-POL-001"),
-                                          ("rules_clearance_relaxed", "FAB-RULES-001")])
+                                          ("rules_clearance_relaxed", "FAB-RULES-001"),
+                                          ("gnd_near_mains_no_dru_rule", "ISO-SEP-001")])
 def test_seeded_defect_blocks_the_gate(board, tmp_path, mutation, req):
     d = fixtures.copy_of(board, tmp_path / mutation)
     shutil.copytree(REFERENCE, d / "verification")
