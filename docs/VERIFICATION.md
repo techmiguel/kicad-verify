@@ -205,4 +205,9 @@ not part of the subject.
 `kicadverify init --ci github` writes `.github/workflows/hw-verify.yml`: kicad-cli from the official
 KiCad image, `kicadverify verify --gate fab`, the Markdown report in the job summary, a JUnit file
 (one test case per requirement: FAILED → failure, NOT_VERIFIABLE/NOT_RUN → skipped with the reason)
-and the raw evidence as an artifact.
+and the raw evidence as an artifact. With `--annotations github` every requirement that blocks the
+gate (or is FAILED) becomes a GitHub annotation: an error for a FAILED blocker, a warning otherwise,
+placed on the `(property "Reference" ...)` line of the first component its findings name in the
+schematic or board it was checked on, with paths relative to the repository root. GitHub shows at
+most 10 errors and 10 warnings per step, so the most severe come first and a final notice counts the
+rest.

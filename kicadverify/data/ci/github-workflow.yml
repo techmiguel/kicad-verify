@@ -38,7 +38,7 @@ jobs:
       - name: Verify (fab gate)
         run: >-
           kicadverify verify {{path}} --gate fab
-          --junit hw-verify-junit.xml --markdown "$GITHUB_STEP_SUMMARY"
+          --junit hw-verify-junit.xml --markdown "$GITHUB_STEP_SUMMARY" --annotations github
       - name: Upload reports
         if: always()
         uses: actions/upload-artifact@v4

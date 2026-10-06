@@ -205,12 +205,16 @@ def _print_review(results, rr):
     return head + "\n" + "\n".join(lines)
 
 
-def _emit(rep, a, gate):
+def _emit(rep, a, gate, root="."):
     if getattr(a, "junit", None):
         Path(a.junit).write_text(outputs.junit(rep), encoding="utf-8")
     if getattr(a, "markdown", None):
         with open(a.markdown, "a" if a.markdown.endswith("STEP_SUMMARY") else "w", encoding="utf-8") as f:
             f.write(outputs.markdown(rep, gate))
+    if getattr(a, "annotations", None) == "github":
+        out = outputs.github_annotations(rep, root, gate)
+        if out:
+            print(out)
 
 
 def _exit(rep, gate):
@@ -237,6 +241,8 @@ def main(argv=None):
         p.add_argument("path", nargs="?", default=".")
         if name in ("verify", "review", "release"):
             p.add_argument("--junit", help="write a JUnit XML report (one test case per requirement)")
+            p.add_argument("--annotations", choices=["github"],
+                           help="print GitHub Actions annotations for the requirements that block the gate")
             p.add_argument("--markdown", help="write the Markdown report (appends when the path ends in STEP_SUMMARY)")
             p.add_argument("--json", action="store_true", help="print the full JSON report")
         if name == "verify":
@@ -384,7 +390,7 @@ def main(argv=None):
         fast = getattr(a, "fast", False)
         gate = getattr(a, "gate", "fab")
         rep, _ = analyse(root, "fast" if fast else "full")
-        _emit(rep, a, gate)
+        _emit(rep, a, gate, root)
         print(json.dumps(rep, indent=2, ensure_ascii=False) if getattr(a, "json", False) else
               report.text(rep, not getattr(a, "all", False), gate=gate))
         if a.attest and not _attest(root, proj, rep, a.sign_key):
@@ -395,7 +401,7 @@ def main(argv=None):
         if a.cmd == "release" and not rep["verification"]["gates"]["fab"]["pass"]:
             print(report.text(rep, gate="fab"))
             print("Release blocked: the fab gate does not pass.", file=sys.stderr)
-            _emit(rep, a, "fab")
+            _emit(rep, a, "fab", root)
             return EXIT_BLOCKED
         rr = None
         if a.cmd == "review" or a.rerun_review or not ctx["review_current"]:
@@ -404,7 +410,7 @@ def main(argv=None):
         else:
             print("Reusing the independent review on record for this design and requirement set.")
         gate = "release" if a.cmd == "release" else "dev"
-        _emit(rep, a, gate)
+        _emit(rep, a, gate, root)
         print(json.dumps(rep, indent=2, ensure_ascii=False) if a.json else report.text(rep, gate=gate))
         code = _exit(rep, gate)
         if a.cmd == "review" or code != EXIT_OK:

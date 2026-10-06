@@ -584,3 +584,28 @@ def test_isolation_declared_or_not_verifiable(iso_board):
     isolation.apply_sources(reqs, {"isolation": {"barriers": [
         {"name": "m", "required_mm": 4, "source": {"kind": "regulatory", "ref": "IEC 62368-1 T.x", "confirmed": False}}]}})
     assert reqs[0]["source"]["confirmed"] is False and "IEC 62368-1" in reqs[0]["source"]["ref"]
+
+
+# ------------------------------------------------------------------ GitHub annotations
+def test_github_annotations(tmp_path):
+    hw = tmp_path / "hw"
+    hw.mkdir()
+    (hw / "b.kicad_sch").write_text('(kicad_sch\n (symbol\n  (property "Reference" "D2")\n ))\n')
+    sha = "0" * 64
+    reqs = [req("POL", gate="dev"), req("NV1", gate="fab"), req("REL", gate="release")]
+    res = [Result("POL", FAIL, "1 polarity error", evidence=[hw / "b.kicad_sch"],
+                  violations=[{"key": "k", "text": "D2 (LED): anode on GND, 100%: reversed\nsecond line"}]),
+           Result("NV1", SKIP, "no pins.yaml", outcome=NOT_VERIFIABLE), Result("REL", SKIP, "x")]
+    ver = rq.verification(reqs, [], res, hw, "full", {})
+    rep = {"verification": ver, "provenance": {"artifacts": {"groups": {"design": [{"path": "b.kicad_pcb"}]}}}}
+    out = outputs.github_annotations(rep, hw, "fab", repo_root=tmp_path).splitlines()
+    assert out[0].startswith("::error file=hw/b.kicad_sch,line=3,title=POL FAILED::")
+    assert "100%25" in out[0] and "%0Asecond line" in out[0] and "\n" not in out[0]
+    assert out[1].startswith("::warning file=hw/b.kicad_pcb,title=NV1 NOT_VERIFIABLE::")
+    assert len(out) == 2  # REL is release-gated: not a fab blocker
+    many = [_v(f"R{i:02}", FAILED, "dev", "error") for i in range(13)]
+    for v in many:
+        v.update(text="t", findings=[], evidence=[], deviations=[])
+    rep = {"verification": {"requirements": many, "gates": rq.gates(many)}}
+    out = outputs.github_annotations(rep, hw, "dev", repo_root=tmp_path).splitlines()
+    assert sum(l.startswith("::error") for l in out) == 10 and "3 more requirements" in out[-1]
