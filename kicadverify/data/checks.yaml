@@ -1,0 +1,211 @@
+# Registry of verifiers. Single source of truth for docs/COVERAGE.md (`kicadverify checks --markdown`)
+# and for the `limits` printed next to every requirement verdict: a VERIFIED requirement is only as
+# strong as what its verifiers cover.
+#
+# modes: in which `verify` modes the check runs (fast = after each edit; full = complete gate).
+# inputs: what the check reads; a missing input makes it NOT_VERIFIABLE, never silently PASS.
+checks:
+  PCB-ERC-001:
+    title: Electrical rules check (kicad-cli sch erc)
+    layer: kicad
+    modes: [full]
+    inputs: [.kicad_sch]
+    covers: Unconnected pins, pin-type conflicts, missing power flags
+    limits: Wrong symbol pinout vs the datasheet; component values; function
+  PCB-DRC-001:
+    title: Design rules check (kicad-cli pcb drc, zones refilled in memory)
+    layer: kicad
+    modes: [full]
+    inputs: [.kicad_pcb, .kicad_pro, .kicad_dru]
+    covers: Clearances, drill sizes, overlaps, silkscreen and library drift, against the rules stored in the board
+    limits: Whether those rules are the right ones for the fab or the application (FAB-RULES-001 checks the fab side; mains isolation is a project requirement); signal integrity; thermal
+  PCB-CONN-001:
+    title: Unrouted connections (kicad-cli pcb drc)
+    layer: kicad
+    modes: [full]
+    inputs: [.kicad_pcb]
+    covers: Connections in the board ratsnest that are not routed
+    limits: Whether the netlist is the intended one
+  PCB-PARITY-001:
+    title: Schematic/PCB parity (kicad-cli netlist + own parser)
+    layer: kicad
+    modes: [fast, full]
+    inputs: [.kicad_sch, .kicad_pcb]
+    covers: Same references, footprints and net per pin in schematic and PCB
+    limits: Errors present in both. PCB-only parts (MountingHole, Fiducial, TestPoint, board_only) are ignored
+  PCB-PINMAP-001:
+    title: Symbol pin to footprint pad mapping
+    layer: kicad
+    modes: [fast, full]
+    inputs: [.kicad_sch, .kicad_pcb]
+    covers: Symbol pins without a pad; electrical pads without a symbol pin (wrong package or numbering)
+    limits: A pin number that exists in both but means something else (MOD-PINOUT-001)
+  PCB-FOOT-001:
+    title: Approved footprints
+    layer: board
+    modes: [fast, full]
+    inputs: [.kicad_pcb, verification/pcb/approved_footprints.txt]
+    covers: Footprints not in the approved list
+    limits: Whether the approved list itself is right; approve each entry against the datasheet
+  PCB-MODEL-001:
+    title: 3D models present
+    layer: board
+    modes: [fast, full]
+    inputs: [.kicad_pcb]
+    covers: Footprints without a 3D model
+    limits: A model of the wrong part or wrongly oriented
+  PCB-PADNET-001:
+    title: Pads without a net
+    layer: board
+    modes: [fast, full]
+    inputs: [.kicad_pcb]
+    covers: Electrical pads without a net
+    limits: Whether the pin was meant to be NC (each one must be waived with the reason)
+  PCB-WIDTH-001:
+    title: Power track width
+    layer: board
+    modes: [fast, full]
+    inputs: [.kicad_pcb]
+    covers: Tracks narrower than min_power_width_mm on nets whose name looks like power
+    limits: Real current capacity (copper weight, length, temperature rise); power nets with unusual names (power_net_patterns); planes and zones
+  PCB-PINS-001:
+    title: Critical pins vs pins.yaml
+    layer: board
+    modes: [fast, full]
+    inputs: [.kicad_pcb, verification/pcb/pins.yaml]
+    covers: Pins listed in pins.yaml compared with the PCB nets
+    limits: Pins not listed; transcription errors in pins.yaml
+  PCB-HOLE-001:
+    title: Mounting-hole position and drill
+    layer: board
+    modes: [fast, full]
+    inputs: [.kicad_pcb, params.mounting_holes]
+    covers: Mounting-hole position and drill vs the expected values
+    limits: Whether the expected values match the enclosure (the board interface lets a mechanical tool check that)
+  PCB-KEEPOUT-001:
+    title: Mounting-hole keep-out
+    layer: board
+    modes: [fast, full]
+    inputs: [.kicad_pcb]
+    covers: Tracks, vias and pads of other nets inside the washer radius
+    limits: Copper zones; screw heads larger than the configured radius
+  CIR-POL-001:
+    title: Polarity (LEDs, diodes, clamps, polarized capacitors)
+    layer: circuit
+    modes: [fast, full]
+    inputs: [.kicad_sch]
+    covers: LEDs whose anode resolves to GND, reverse-biased LEDs, diodes forward-shorting a rail, reversed flyback diodes across relays/inductors, forward-biased clamps, reversed polarized capacitors
+    limits: Parts on nets of unknown voltage (listed as unchecked in the coverage); footprint pin 1 vs symbol (MOD-FOOT-001, HUM-POL-001)
+  CIR-REG-001:
+    title: Fixed regulators vs rail
+    layer: circuit
+    modes: [fast, full]
+    inputs: [.kicad_sch]
+    covers: Fixed regulators whose output voltage (from the part value) differs from the rail; input below output + dropout
+    limits: Adjustable regulators and part values the patterns do not recognise; thermal dissipation
+  CIR-LED-001:
+    title: LED current
+    layer: circuit
+    modes: [fast, full]
+    inputs: [.kicad_sch]
+    covers: LED current outside led_min_ma..led_max_ma, from rail/logic level, series resistor and a colour-based Vf
+    limits: LEDs driven by constant-current drivers or through more than one resistor (listed as unchecked)
+  CIR-BJT-001:
+    title: NPN base drive
+    layer: circuit
+    modes: [fast, full]
+    inputs: [.kicad_sch]
+    covers: NPN base driven without a resistor, base current above gpio_max_ma
+    limits: PNP and MOSFET drive; saturation margin vs collector load
+  CIR-FLOAT-001:
+    title: Floating enable/reset/boot pins
+    layer: circuit
+    modes: [fast, full]
+    inputs: [.kicad_sch]
+    covers: Enable/reset/boot pins with no other connection
+    limits: Pins tied to the wrong level (MOD-STRAP-001)
+  KH-*:
+    title: kicad-happy detectors (pinned engine)
+    layer: circuit
+    modes: [fast, full]
+    inputs: [.kicad_sch, .kicad_pcb, Gerbers]
+    covers: 60+ detectors - capacitor derating, regulator feedback, decoupling, bus pull-ups, protection mapping, edge distance, DFM, test points
+    limits: See kicad-happy's own documentation. error gates as FAIL, warning as WARN, info goes to the reviewer only
+  FAB-RULES-001:
+    title: Board design rules vs fab capabilities
+    layer: fab
+    modes: [fast, full]
+    inputs: [.kicad_pro, .kicad_dru, fab profile]
+    covers: Board minimum clearance, net-class clearances and custom-rule clearances at least as strict as the fab's minimum spacing, so a clean DRC implies manufacturable spacing
+    limits: Rule conditions are not evaluated (a custom rule is compared by its value only); the fab profile values themselves (check its source)
+  FAB-DFM-001:
+    title: Measured geometry vs fab capabilities
+    layer: fab
+    modes: [fast, full]
+    inputs: [.kicad_pcb, fab profile]
+    covers: Measured track width, via drill/pad/annular ring, plated-hole drill and annular ring, hole-to-hole distance, copper-to-board-edge distance (tracks, vias, pads, filled zones), board size, layer count and thickness
+    limits: Copper-to-copper spacing (FAB-RULES-001 + DRC); arcs approximated by 16 segments; non-rectangular custom pads approximated by their bounding box; silkscreen and solder mask
+  FAB-GERBER-001:
+    title: Mandatory Gerber layers
+    layer: fab
+    modes: [full]
+    inputs: [Gerbers]
+    covers: Missing copper, mask or outline layers (X2 FileFunction)
+    limits: Paste and silkscreen (optional); Gerbers without X2 attributes
+  FAB-STALE-001:
+    title: Gerbers match the current PCB
+    layer: fab
+    modes: [full]
+    inputs: [Gerbers, .kicad_pcb]
+    covers: Re-plots with kicad-cli and compares the geometry of apertures with a function (pads, tracks, vias, outline)
+    limits: Drill marks and other function-less apertures; plot-setting differences that do not move coordinates
+  FAB-DRILL-001:
+    title: Drill files match the PCB
+    layer: fab
+    modes: [fast, full]
+    inputs: [.drl, .kicad_pcb]
+    covers: Drill diameters, counts and positions (±0.01 mm, absolute or aux origin) vs the PCB
+    limits: Slots; plated/non-plated mix-ups; Excellon without a decimal point (diameters only, positions listed as unchecked)
+  FAB-BOM-001:
+    title: BOM matches the PCB
+    layer: fab
+    modes: [fast, full]
+    inputs: [BOM .csv, .kicad_pcb]
+    covers: Assembled parts missing from the BOM or extra in it, footprint per reference, empty supplier codes
+    limits: Whether the supplier code is the right part (value, voltage, tolerance); stock
+  FAB-CPL-001:
+    title: CPL matches the PCB
+    layer: fab
+    modes: [fast, full]
+    inputs: [CPL .csv, .kicad_pcb]
+    covers: Missing parts, position not at the pad centre (after detecting origin and Y direction), wrong side
+    limits: Rotations - every fab house applies its own offsets (HUM-CPL-001)
+  ASSERT:
+    title: Declarative project assertion
+    layer: project
+    modes: [fast, full]
+    inputs: [.kicad_pcb, .kicad_sch]
+    covers: The property stated in the requirement's `check:` block (pin_net, value, footprint, field, net_exists, board_size, layer_count, track_width)
+    limits: Only what the assertion states
+  REVIEW:
+    title: Independent reviewer (clean `claude -p` session, evidence re-checked by code)
+    layer: review
+    modes: [review]
+    inputs: [review bundle, datasheets]
+    covers: Judgement requirements where a rule cannot decide; every quote is searched verbatim in the cited file
+    limits: Only what is in the bundle and project files (no web); non-deterministic; can share blind spots with the tools that generated the design
+  SIGNOFF:
+    title: Human sign-off bound to the design hash
+    layer: human
+    modes: [signoff]
+    inputs: [verification/pcb/signoff.yaml]
+    covers: Physical and judgement checks recorded by a named person for the exact design content
+    limits: The care of the person signing
+  PCB-IFACE-001:
+    title: Board interface export (STEP + JSON) for mechanical tools
+    layer: interface
+    modes: [full]
+    inputs: [.kicad_pcb]
+    covers: Produces the interface; verifies nothing by itself
+    limits: Informational output
+    informational: true

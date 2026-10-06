@@ -1,0 +1,18 @@
+# Footprints of the fabricated and assembled smartRele v3 board (fixture commit 6053b84d).
+Button_Switch_SMD:SW_Push_1P1T_XKB_TS-1187A
+Capacitor_SMD:C_0603_1608Metric
+Capacitor_SMD:C_0805_2012Metric
+Capacitor_THT:CP_Radial_D6.3mm_P2.50mm
+Connector_PinHeader_2.54mm:PinHeader_2x03_P2.54mm_Vertical
+Converter_ACDC:Converter_ACDC_Hi-Link_HLK-PMxx
+Diode_SMD:D_SOD-123
+Fuse:Fuse_Littelfuse_395Series
+LED_SMD:LED_0603_1608Metric
+MountingHole:MountingHole_2.2mm_M2
+Package_TO_SOT_SMD:SOT-223-3_TabPin2
+Package_TO_SOT_SMD:SOT-23
+RF_Module:ESP-12E
+Relay_THT:Relay_SPST_Omron_G2RL-1A-E
+Resistor_SMD:R_0603_1608Metric
+TerminalBlock_Phoenix:TerminalBlock_Phoenix_MKDS-1,5-3-5.08_1x03_P5.08mm_Horizontal
+Varistor:RV_Disc_D7mm_W3.4mm_P5mm

@@ -12,7 +12,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from ..report import FAIL, PASS, SKIP, WARN, Result
+from ..report import FAIL, NOT_VERIFIABLE, PASS, WARN, Result
 
 PINNED = "v2.3.1"
 REPO = "https://github.com/aklofas/kicad-happy.git"
@@ -87,7 +87,7 @@ def findings(data):
 def to_results(data, label, params):
     if data is None:
         return [Result("KH-ENGINE", WARN, "kicad-happy not installed: circuit/DFM detectors skipped "
-                       "(run `kicadverify setup`)")]
+                       "(run `kicadverify setup`)", outcome=NOT_VERIFIABLE)]
     cfg = params.get("kicad_happy") or {}
     overrides = {**DEFAULT_OVERRIDES, **(cfg.get("severity") or {})}
     groups = {}
@@ -106,8 +106,11 @@ def to_results(data, label, params):
     res = [Result(f"KH-{rule}", g["status"], f"{label}: kicad-happy {rule}: {len(g['items'])} findings",
                   violations=g["items"]) for rule, g in sorted(groups.items())]
     n = sum(1 for _ in findings(data))
-    res.append(Result("KH-ENGINE", PASS, f"{label}: kicad-happy {data.get('_version')} ran, {n} findings "
-                      f"({sum(len(g['items']) for g in groups.values())} gated)"))
+    ran = [k for k in ("schematic", "pcb", "cross", "gerbers") if data.get(k)]
+    res.append(Result("KH-ENGINE", PASS, f"{label}: kicad-happy {data.get('_version')} ran "
+                      f"({', '.join(ran) or 'no analyzer output'}), {n} findings "
+                      f"({sum(len(g['items']) for g in groups.values())} gated)",
+                      outcome=None if ran else NOT_VERIFIABLE))
     return res
 
 

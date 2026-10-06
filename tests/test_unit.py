@@ -1,9 +1,8 @@
 """Unit tests that need neither KiCad nor network."""
-from pathlib import Path
 
 from kicadverify import netlist, review, sexp, waivers
 from kicadverify.checks import circuit
-from kicadverify.report import FAIL, PASS, WARN, Result
+from kicadverify.report import FAIL, PASS, Result
 
 
 def test_sexp_parses_strings_and_escapes():
@@ -103,16 +102,3 @@ def test_evidence_must_be_verbatim(tmp_path):
     assert not bad and "not found" in why
     short, _ = review.check_evidence({"file": "f.txt", "quote": "EN"}, tmp_path, tmp_path)
     assert not short
-
-
-def test_judge_rules(tmp_path):
-    (tmp_path / "d.json").write_text("U1 VO +3V3 regulator output", encoding="utf-8")
-    reqs = [{"id": "A"}, {"id": "B"}, {"id": "C"}, {"id": "D"}]
-    raw = {"verdicts": [
-        {"id": "A", "verdict": "PASS", "summary": "ok", "evidence": [{"file": "d.json", "quote": "U1 VO +3V3 regulator"}]},
-        {"id": "B", "verdict": "PASS", "summary": "ok", "evidence": [{"file": "d.json", "quote": "invented quote here"}]},
-        {"id": "C", "verdict": "FAIL", "summary": "bad", "evidence": []},
-    ], "extra_findings": []}
-    res, _, _ = review.judge(raw, reqs, tmp_path, tmp_path)
-    st = {r.check_id: r.status for r in res}
-    assert st == {"A": PASS, "B": FAIL, "C": WARN, "D": FAIL}

@@ -1,6 +1,17 @@
 # Base requirements inherited by every project. A project overrides `params`, adds its own
-# requirements and can `disable` ids in verification/pcb/requirements.yaml.
-# method: auto (deterministic check) | model (independent reviewer, evidence validated) | human (sign-off)
+# requirements, overrides fields of these (same id) and can exclude ids with a reason in
+# verification/pcb/requirements.yaml (`disable: [{id, reason}]`).
+#
+# Each requirement:
+#   id, text
+#   source      where it comes from: {kind, ref, url?, file?, locator?, confirmed?}
+#               kind: standard | regulatory | datasheet | fab_capability | design_intent | customer |
+#                     lesson_learned | best_practice | tool
+#   method      auto (deterministic check) | model (independent reviewer, evidence re-checked) |
+#               human (sign-off bound to the design hash)
+#   verified_by check ids (or patterns) whose results decide it; default [id]
+#   acceptance  no_fail (WARN findings accepted) | no_findings (every finding must be fixed or waived)
+#   gate        first gate at which it must be VERIFIED: dev | fab | release | none (advisory)
 params:
   min_power_width_mm: 0.25
   # power_net_patterns: ["^/?MOTOR"]
@@ -15,6 +26,8 @@ params:
   min_dropout_v: 0.3
   fab:
     cpl_tol_mm: 0.5
+    assembly: true                  # false: bare boards; BOM/CPL requirements are then excluded
+    # profile: jlcpcb-1-2-layer-standard   # a built-in name (`kicadverify profiles`) or a dict of limits
     # dir: fabrication
     # bom: fabrication/BOM_JLCPCB.csv
     # cpl: fabrication/CPL_JLCPCB.csv
@@ -22,49 +35,149 @@ params:
     enabled: true
     # severity: {PU-001: off, TE-001: info}     # per-rule override: fail | warn | info | off
   interface:
-    step_user_origin: "0x0mm"         # origin used for the board STEP consumed by cad-verify
+    step_user_origin: "0x0mm"         # origin used for the board STEP consumed by mechanical tools
   review:
     model: opus
     timeout_s: 1800
     datasheet_dirs: [datasheets, docs/datasheets, docs]
     context_files: [verification/pcb/design_intent.md, README.md, CHANGELOG.md, docs/*.md]
+  # gates: which verdicts block each gate (FAILED always blocks)
+  # gates: {dev: [FAILED], fab: [FAILED, NOT_VERIFIABLE, NOT_RUN], release: [FAILED, NOT_VERIFIABLE, NOT_RUN]}
 requirements:
   # --- deterministic: KiCad
-  - {id: PCB-ERC-001, method: auto, text: "ERC has no errors; warnings reviewed or waived"}
-  - {id: PCB-DRC-001, method: auto, text: "DRC has no errors at full severity"}
-  - {id: PCB-CONN-001, method: auto, text: "Every schematic connection is routed"}
-  - {id: PCB-PARITY-001, method: auto, text: "Schematic and PCB have the same parts, footprints and net per pin"}
-  - {id: PCB-PINMAP-001, method: auto, text: "Every symbol pin has a pad in its footprint and no electrical pad is left without a pin"}
+  - id: PCB-ERC-001
+    text: "ERC has no errors; warnings fixed or waived one by one"
+    acceptance: no_findings
+    source: {kind: tool, ref: "KiCad electrical rules check (kicad-cli sch erc --severity-all)"}
+  - id: PCB-DRC-001
+    text: "DRC has no errors against the board design rules"
+    source: {kind: tool, ref: "KiCad design rules check (kicad-cli pcb drc --severity-all --refill-zones)"}
+  - id: PCB-CONN-001
+    text: "Every schematic connection is routed"
+    source: {kind: tool, ref: "KiCad DRC unconnected items"}
+  - id: PCB-PARITY-001
+    text: "Schematic and PCB have the same parts, footprints and net per pin"
+    gate: dev
+    source: {kind: best_practice, ref: "Board built from the reviewed schematic (KiCad 'Update PCB from Schematic' parity)"}
+  - id: PCB-PINMAP-001
+    text: "Every symbol pin has a pad in its footprint and no electrical pad is left without a pin"
+    acceptance: no_findings
+    gate: dev
+    source: {kind: lesson_learned, ref: "Footprint pad renumbered: symbol pin silently without a pad (seeded bank, pinmap_pad_renumbered)"}
   # --- deterministic: board
-  - {id: PCB-FOOT-001, method: auto, text: "Only approved footprints (checked against the datasheet)"}
-  - {id: PCB-MODEL-001, method: auto, text: "Every footprint has a 3D model (needed for the enclosure fit check)"}
-  - {id: PCB-PADNET-001, method: auto, text: "No pad without a net unless the pin is NC"}
-  - {id: PCB-WIDTH-001, method: auto, text: "Power tracks are at least min_power_width_mm wide"}
-  - {id: PCB-PINS-001, method: auto, text: "Critical pins match verification/pcb/pins.yaml (from the datasheet)"}
-  - {id: PCB-HOLE-001, method: auto, text: "Mounting holes at the expected position and diameter"}
-  - {id: PCB-KEEPOUT-001, method: auto, text: "No track, via or pad of another net inside the mounting-hole keep-out"}
+  - id: PCB-FOOT-001
+    text: "Only approved footprints (each checked against its datasheet)"
+    source: {kind: best_practice, ref: "Footprint approval list, verification/pcb/approved_footprints.txt"}
+  - id: PCB-MODEL-001
+    text: "Every footprint has a 3D model (needed for the enclosure fit check)"
+    acceptance: no_findings
+    gate: release
+    source: {kind: best_practice, ref: "Mechanical fit is checked on the board STEP; parts without a model are invisible to it"}
+  - id: PCB-PADNET-001
+    text: "No electrical pad without a net unless the pin is NC (each NC pad waived with its reason)"
+    acceptance: no_findings
+    source: {kind: best_practice, ref: "Unintended open pads are a common assembly-review finding"}
+  - id: PCB-WIDTH-001
+    text: "Power tracks are at least min_power_width_mm wide"
+    source: {kind: standard, ref: "IPC-2221 current-capacity charts (project threshold min_power_width_mm)"}
+  - id: PCB-PINS-001
+    text: "Critical pins match verification/pcb/pins.yaml (copied from the datasheets)"
+    source: {kind: datasheet, ref: "Pin tables transcribed into verification/pcb/pins.yaml"}
+  - id: PCB-HOLE-001
+    text: "Mounting holes at the expected position and diameter"
+    source: {kind: customer, ref: "Enclosure / mechanical drawing (params.mounting_holes)"}
+  - id: PCB-KEEPOUT-001
+    text: "No track, via or pad of another net inside the mounting-hole keep-out"
+    source: {kind: lesson_learned, ref: "Screw washer shorting copper near a mounting hole (seeded bank, track_in_MH1_keepout)"}
   # --- deterministic: circuit
-  - {id: CIR-POL-001, method: auto, text: "LEDs, diodes, clamps and polarized capacitors are not reversed"}
-  - {id: CIR-REG-001, method: auto, text: "Fixed regulators output the voltage of the rail they drive, with enough input headroom"}
-  - {id: CIR-LED-001, method: auto, text: "LED current within led_min_ma..led_max_ma"}
-  - {id: CIR-BJT-001, method: auto, text: "Bipolar transistors have a base resistor and base current within gpio_max_ma"}
-  - {id: CIR-FLOAT-001, method: auto, text: "Enable/reset/boot pins are not floating"}
-  - {id: KH-*, method: auto, text: "kicad-happy detectors (errors gate, warnings reported)"}
+  - id: CIR-POL-001
+    text: "LEDs, diodes, clamps and polarized capacitors are not reversed"
+    gate: dev
+    source: {kind: lesson_learned, ref: "Reversed LED and flyback diode pass ERC and DRC (seeded bank)"}
+  - id: CIR-REG-001
+    text: "Fixed regulators output the voltage of the rail they drive, with enough input headroom"
+    gate: dev
+    source: {kind: datasheet, ref: "Regulator output voltage and dropout (from the part value and min_dropout_v)"}
+  - id: CIR-LED-001
+    text: "LED current within led_min_ma..led_max_ma"
+    source: {kind: datasheet, ref: "LED absolute maximum forward current (project limits led_min_ma/led_max_ma)"}
+  - id: CIR-BJT-001
+    text: "Bipolar transistors have a base resistor and base current within gpio_max_ma"
+    source: {kind: datasheet, ref: "MCU GPIO source current limit (project limit gpio_max_ma)"}
+  - id: CIR-FLOAT-001
+    text: "Enable/reset/boot pins are not floating"
+    source: {kind: best_practice, ref: "Floating control inputs cause random resets and start-up failures"}
+  - id: KH-*
+    text: "kicad-happy detectors: no error-level finding"
+    source: {kind: tool, ref: "kicad-happy v2.3.1 detectors (MIT), pinned"}
   # --- deterministic: fabrication
-  - {id: FAB-GERBER-001, method: auto, text: "Gerber set has every mandatory layer"}
-  - {id: FAB-STALE-001, method: auto, text: "Gerbers match the current PCB"}
-  - {id: FAB-DRILL-001, method: auto, text: "Drill diameters, counts and positions in the .drl files match the PCB"}
-  - {id: FAB-BOM-001, method: auto, text: "BOM lists exactly the assembled parts, with matching footprints and supplier codes"}
-  - {id: FAB-CPL-001, method: auto, text: "CPL lists every assembled part at its pad centre, on the right side"}
+  - id: FAB-RULES-001
+    text: "Board design rules are at least as strict as the target fab's capabilities, so a clean DRC means manufacturable spacing"
+    source: {kind: fab_capability, ref: "Target fab capability profile (params.fab.profile)"}
+  - id: FAB-DFM-001
+    text: "Measured board geometry (tracks, vias, holes, annular rings, edge distance, size, layers, thickness) within the target fab's capabilities"
+    source: {kind: fab_capability, ref: "Target fab capability profile (params.fab.profile)"}
+  - id: FAB-GERBER-001
+    text: "Gerber set has every mandatory layer"
+    source: {kind: fab_capability, ref: "Fab order requirements: copper, mask and outline layers (Gerber X2)"}
+  - id: FAB-STALE-001
+    text: "Gerbers match the current PCB"
+    source: {kind: lesson_learned, ref: "Gerbers exported before a track moved (seeded bank, gerbers_stale)"}
+  - id: FAB-DRILL-001
+    text: "Drill diameters, counts and positions in the .drl files match the PCB"
+    source: {kind: lesson_learned, ref: "Drill diameter changed after export on a real board revision"}
+  - id: FAB-BOM-001
+    text: "BOM lists exactly the assembled parts, with matching footprints and supplier codes"
+    source: {kind: fab_capability, ref: "Assembly order: BOM per reference with supplier part numbers"}
+  - id: FAB-CPL-001
+    text: "CPL lists every assembled part at its pad centre, on the right side"
+    source: {kind: lesson_learned, ref: "CPL at the body centre instead of the pad centre (parts offset 3.8 mm and 1.4 mm on a real board)"}
+  # --- traceability
+  - id: GEN-TRACE-001
+    text: "No verifier reports a defect outside the requirement set (untraced failures)"
+    verified_by: ["@orphans"]
+    gate: dev
+    source: {kind: best_practice, ref: "Every finding is traced to a requirement or resolved"}
   # --- independent reviewer (evidence is re-checked by code)
-  - {id: MOD-PINOUT-001, method: model, text: "Every IC, module and connector pin assignment matches its datasheet pinout (supply, ground, enable, boot strapping, signal direction)"}
-  - {id: MOD-STRAP-001, method: model, text: "Boot/strapping, enable and reset pins sit at the levels the datasheet requires for normal start-up"}
-  - {id: MOD-POWER-001, method: model, text: "Every rail source can supply its load and no part sees a voltage above its absolute maximum rating"}
-  - {id: MOD-PROT-001, method: model, text: "External inputs have protection sized for the application (fuse rating vs load current, surge/ESD, reverse polarity where relevant)"}
-  - {id: MOD-VALUE-001, method: model, text: "Component values fit their function and ratings (pull-ups, LED/base resistors, timing RCs, voltage/power ratings)"}
-  - {id: MOD-FOOT-001, method: model, text: "Each footprint matches the package of the ordered part (MPN or supplier code), including pin-1 orientation"}
+  - id: MOD-PINOUT-001
+    method: model
+    text: "Every IC, module and connector pin assignment matches its datasheet pinout (supply, ground, enable, boot strapping, signal direction)"
+    source: {kind: datasheet, ref: "Component datasheets (datasheets/, Datasheet fields)"}
+  - id: MOD-STRAP-001
+    method: model
+    text: "Boot/strapping, enable and reset pins sit at the levels the datasheet requires for normal start-up"
+    source: {kind: datasheet, ref: "Start-up / strapping tables of the MCU and module datasheets"}
+  - id: MOD-POWER-001
+    method: model
+    text: "Every rail source can supply its load and no part sees a voltage above its absolute maximum rating"
+    source: {kind: datasheet, ref: "Absolute maximum ratings and regulator current limits"}
+  - id: MOD-PROT-001
+    method: model
+    text: "External inputs have protection sized for the application (fuse rating vs load current, surge/ESD, reverse polarity where relevant)"
+    source: {kind: design_intent, ref: "verification/pcb/design_intent.md (supply, loads, environment)"}
+  - id: MOD-VALUE-001
+    method: model
+    text: "Component values fit their function and ratings (pull-ups, LED/base resistors, timing RCs, voltage/power ratings)"
+    source: {kind: datasheet, ref: "Component datasheets and design intent"}
+  - id: MOD-FOOT-001
+    method: model
+    text: "Each footprint matches the package of the ordered part (MPN or supplier code), including pin-1 orientation"
+    source: {kind: datasheet, ref: "Package drawings of the ordered parts"}
   # --- human sign-off (bound to the design hash; any change invalidates it)
-  - {id: HUM-FIT-001, method: human, text: "1:1 print of the board checked with the real parts"}
-  - {id: HUM-POL-001, method: human, text: "Polarity and pin 1 of ICs, diodes, LEDs and connectors checked against datasheets"}
-  - {id: HUM-CPL-001, method: human, text: "CPL rotations checked in the fab house viewer"}
-  - {id: HUM-PROTO-001, method: human, text: "Prototype assembled and working to specification"}
+  - id: HUM-FIT-001
+    method: human
+    text: "1:1 print of the board checked with the real parts"
+    source: {kind: best_practice, ref: "Paper fit check before ordering"}
+  - id: HUM-POL-001
+    method: human
+    text: "Polarity and pin 1 of ICs, diodes, LEDs and connectors checked against datasheets"
+    source: {kind: best_practice, ref: "Assembly polarity review"}
+  - id: HUM-CPL-001
+    method: human
+    text: "CPL rotations checked in the fab house viewer"
+    source: {kind: fab_capability, ref: "Each fab house applies its own rotation offsets"}
+  - id: HUM-PROTO-001
+    method: human
+    text: "Prototype assembled and working to specification"
+    gate: none
+    source: {kind: best_practice, ref: "Validation on hardware; advisory for the first order of a new design"}

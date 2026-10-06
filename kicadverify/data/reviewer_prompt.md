@@ -24,7 +24,7 @@ Method:
 1. Read `requirements.json`, then `design.json`. Read the datasheet text files that matter
    (Grep is the fastest way to find a pinout or rating table) and the .kicad_sch / .kicad_pcb files
    when you need to confirm something.
-2. For each requirement decide PASS, FAIL, WARN or NOT_VERIFIABLE.
+2. For each requirement decide PASS, FAIL or NOT_VERIFIABLE.
    - PASS only when you checked it and can cite where.
    - FAIL when you found a concrete defect.
    - NOT_VERIFIABLE when the information needed (usually a datasheet) is not available. Say what is missing.
@@ -36,7 +36,9 @@ Evidence rules (enforced by code after you answer; anything that fails them is d
   `datasheets_text/` and give the page in `locator`.
 - `quote` must be copied VERBATIM from that file (at least 8 characters, at most 200). For PDFs,
   copy text exactly as it appears on the page. Do not paraphrase inside `quote`.
-- A PASS without at least one valid evidence item counts as FAIL. A FAIL without valid evidence is
-  downgraded to an unverified warning. Never invent part numbers, pin names or values.
+- A PASS without at least one valid evidence item is not accepted (the requirement stays
+  NOT_VERIFIABLE). A FAIL without valid evidence is reported as an unverified claim. Concerns that
+  are not a defect go to `extra_findings` with severity `warning`. Never invent part numbers, pin
+  names or values.
 
 Answer only with the JSON object required by the schema.

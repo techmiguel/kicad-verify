@@ -24,7 +24,7 @@ def export_xml(sch, cache_dir=None):
     meta = cached.with_suffix(".sig") if cached else None
     if cached and cached.exists() and meta.exists() and meta.read_text() == sig:
         return cached.read_text(encoding="utf-8")
-    with tempfile.TemporaryDirectory() as td:
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as td:
         out = Path(td) / "net.xml"
         subprocess.run([KICAD_CLI, "sch", "export", "netlist", "--format", "kicadxml", "-o", str(out),
                         str(sch)], capture_output=True, text=True, timeout=300)

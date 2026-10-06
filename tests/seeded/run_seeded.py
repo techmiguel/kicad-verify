@@ -22,10 +22,10 @@ sys.path.insert(0, str(HERE.parent.parent))
 
 import fixtures  # noqa: E402
 
-from kicadverify import config  # noqa: E402
 from kicadverify.cli import analyse, do_review  # noqa: E402
 
 PCB, SCH = "rele-esp12f.kicad_pcb", "rele-esp12f.kicad_sch"
+REFERENCE = HERE.parent / "reference" / "rele" / "verification"
 FP_SPLIT = re.compile(r"(?m)^(?=\t\(footprint )")
 
 
@@ -58,8 +58,8 @@ def fp_swap_pad_nets(ref, a, b):
         if not ma or not mb:
             return None
         na, nb = ma.group(1), mb.group(1)
-        out = re.sub(r'(\(pad "%s".*?\(net ")([^"]*)("\))' % a, lambda m: m.group(1) + "@@A" + m.group(3), blk, 1, re.S)
-        out = re.sub(r'(\(pad "%s".*?\(net ")([^"]*)("\))' % b, lambda m: m.group(1) + na + m.group(3), out, 1, re.S)
+        out = re.sub(r'(\(pad "%s".*?\(net ")([^"]*)("\))' % a, lambda m: m.group(1) + "@@A" + m.group(3), blk, count=1, flags=re.S)
+        out = re.sub(r'(\(pad "%s".*?\(net ")([^"]*)("\))' % b, lambda m: m.group(1) + na + m.group(3), out, count=1, flags=re.S)
         return out.replace('(net "@@A")', f'(net "{nb}")', 1)
     return lambda t: fp_edit(t, ref, fn)
 
@@ -127,6 +127,21 @@ def add_segment(t):
     return t[:i] + seg + t[i:]
 
 
+def relax_rules(t):
+    """Board rules below the fab's minimum spacing: the DRC stays clean, it just stops guaranteeing it."""
+    data = json.loads(t)
+    data["board"]["design_settings"]["rules"]["min_clearance"] = 0.1
+    for c in data["net_settings"]["classes"]:
+        if c["name"] == "Default":
+            c["clearance"] = 0.1
+    return json.dumps(data, indent=2)
+
+
+def thin_track(t):
+    return t.replace("(width 0.25)", "(width 0.1)", 1)
+
+
+PRO = "rele-esp12f.kicad_pro"
 # (files to edit, expected check, layer group)
 MUTATIONS = {
     # layout and fabrication
@@ -142,6 +157,8 @@ MUTATIONS = {
     "MH1_moved_1mm": ({PCB: fp_move("MH1", 1.0, 0)}, "FAB-DRILL-001", "fab"),
     "cpl_body_centre_U2": (csv_edit("CPL_JLCPCB.csv", cpl_offset), "FAB-CPL-001", "fab"),
     "cpl_missing_K1": (csv_edit("CPL_JLCPCB.csv", drop_line("K1,")), "FAB-CPL-001", "fab"),
+    "rules_clearance_relaxed": ({PRO: relax_rules}, "FAB-RULES-001", "fab"),
+    "track_0.1mm": ({PCB: thin_track}, "FAB-DFM-001", "fab"),
     "bom_missing_C9": (csv_edit("BOM_JLCPCB.csv", lambda ls: [l for l in ls if ",C9," not in l]), "FAB-BOM-001", "fab"),
     # circuit (schematic and PCB updated consistently; parity cannot see them)
     "led_D2_reversed": (sch_rotate("D2"), "CIR-POL-001", "circuit"),
@@ -173,6 +190,16 @@ def apply(d, edits):
                 return False
             f.write_text(new, encoding="utf-8")
     return True
+
+
+def configure(d):
+    """Reference verification config (tests/reference/rele): the unmodified board passes the fab gate."""
+    shutil.rmtree(d / "verification", ignore_errors=True)
+    shutil.copytree(REFERENCE, d / "verification")
+
+
+def failed_reqs(rep):
+    return {v["id"] for v in rep["verification"]["requirements"] if v["status"] == "FAILED"}
 
 
 def keys(results):
@@ -254,17 +281,20 @@ def main():
     prev = json.loads(out.read_text(encoding="utf-8")) if out.exists() else {}
     with tempfile.TemporaryDirectory() as td:
         base = fixtures.copy_of(src, Path(td) / "base")
-        config.init_project(base)
+        configure(base)
         t0 = time.time()
         rep0, _ = analyse(base, "full")
         k0 = keys(rep0["results"])
-        print(f"baseline: {rep0['overall']} in {time.time() - t0:.0f} s", flush=True)
+        f0 = failed_reqs(rep0)
+        fab0 = rep0["verification"]["gates"]["fab"]["pass"]
+        print(f"baseline: {rep0['overall']}, fab gate {'PASS' if fab0 else 'BLOCKED'}, FAILED {sorted(f0)} "
+              f"in {time.time() - t0:.0f} s", flush=True)
         rev_dir = HERE / "reviews"
         rbase = {}
         rev_dir = HERE / "reviews"
         rev_dir.mkdir(exist_ok=True)
         for m in a.reviewer:
-            res, rr = do_review(base, m, rep=rep0, ctx=analyse(base, "full")[1])
+            res, rr, _ = do_review(base, m, rep=rep0, ctx=analyse(base, "full")[1])
             rbase[m] = review_texts(res)
             (rev_dir / f"baseline_{m}.json").write_text(json.dumps(rr, indent=1, ensure_ascii=False), encoding="utf-8")
             print(f"baseline review {m}: {[(r.check_id, r.status) for r in res if r.status != 'PASS']} "
@@ -273,27 +303,31 @@ def main():
             if (a.only and group != a.only) or (a.mutations and name not in a.mutations):
                 continue
             d = fixtures.copy_of(base, Path(td) / name)
-            shutil.rmtree(d / "verification" / "pcb" / "reports", ignore_errors=True)
+            configure(d)
             if not apply(d, edits):
                 rows.append({"mutation": name, "group": group, "expected": expect, "applied": False})
                 continue
             rep, ctx = analyse(d, "full")
             found = sorted({c for c, _ in keys(rep["results"]) - k0})
             row = {"mutation": name, "group": group, "expected": expect, "applied": True,
-                   "deterministic": expect in found, "deterministic_checks": found}
+                   "deterministic": expect in found, "deterministic_checks": found,
+                   "requirements_failed": sorted(failed_reqs(rep) - f0),
+                   "fab_gate_blocked": not rep["verification"]["gates"]["fab"]["pass"]}
             for m in a.reviewer:
-                res, rr = do_review(d, m, rep=rep, ctx=ctx)
+                res, rr, _ = do_review(d, m, rep=rep, ctx=ctx)
                 (rev_dir / f"{name}_{m}.json").write_text(json.dumps(rr, indent=1, ensure_ascii=False), encoding="utf-8")
                 rf = reviewer_hit(name, review_texts(res), rbase[m])
                 row[f"reviewer_{m}"] = rf
                 row[f"reviewer_{m}_cost"] = (rr or {}).get("reviewer", {}).get("cost_usd")
             rows.append(row)
-            print(f"  {name:<24} {expect:<15} det={'Y' if row['deterministic'] else 'n'} {found}"
+            print(f"  {name:<24} {expect:<15} det={'Y' if row['deterministic'] else 'n'} "
+                  f"fab={'BLOCKED' if row['fab_gate_blocked'] else 'pass'} {row['requirements_failed']} {found}"
                   + "".join(f" | {m}: {row[f'reviewer_{m}']}" for m in a.reviewer), flush=True)
     merged = {r["mutation"]: r for r in prev.get("rows", [])} if isinstance(prev, dict) else {}
     for r in rows:
         merged[r["mutation"]] = {**merged.get(r["mutation"], {}), **r}
-    out.write_text(json.dumps({"fixture": f"smartRele@{fixtures.COMMIT[:8]}", "rows": list(merged.values())},
+    out.write_text(json.dumps({"fixture": f"smartRele@{fixtures.COMMIT[:8]}", "baseline_fab_gate": fab0,
+                               "baseline_failed": sorted(f0), "rows": list(merged.values())},
                               indent=2, ensure_ascii=False), encoding="utf-8")
     applied = [r for r in rows if r.get("applied")]
     print(f"deterministic: {sum(r['deterministic'] for r in applied)}/{len(applied)}")

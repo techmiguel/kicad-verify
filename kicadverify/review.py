@@ -2,10 +2,12 @@
 the conversation that generated the design), and re-checks every piece of evidence it cites.
 
 Verdict rules (enforced here, not trusted to the model):
-- PASS needs >= 1 evidence quote found verbatim (whitespace/case-insensitive) in the cited file.
-- PASS without valid evidence -> FAIL (unproven). Missing verdict -> FAIL.
-- FAIL with valid evidence -> FAIL; without -> WARN (unverified claim).
-- NOT_VERIFIABLE -> WARN in dev, FAIL at release unless params.review.unverifiable_at_release = warn.
+- PASS with >= 1 evidence quote found verbatim (whitespace/case-insensitive) in the cited file -> VERIFIED.
+- PASS without valid evidence -> NOT_VERIFIABLE (unproven). Missing verdict -> NOT_VERIFIABLE.
+- FAIL with valid evidence -> FAILED; without -> NOT_VERIFIABLE (unverified claim, check by hand).
+- NOT_VERIFIABLE -> NOT_VERIFIABLE (the gates decide whether it blocks).
+A review is evidence for one design hash and one requirement set; `load_current` reuses it only
+while both are unchanged.
 """
 import json
 import logging
@@ -19,7 +21,7 @@ from pathlib import Path
 
 from . import config
 from .checks.circuit import Circuit
-from .report import FAIL, PASS, WARN, Result
+from .report import FAIL, FAILED, NOT_VERIFIABLE, PASS, VERIFIED, WARN, Result
 
 DATA = config.DATA
 SCHEMA = {
@@ -29,7 +31,7 @@ SCHEMA = {
             "type": "object",
             "properties": {
                 "id": {"type": "string"},
-                "verdict": {"type": "string", "enum": ["PASS", "FAIL", "WARN", "NOT_VERIFIABLE"]},
+                "verdict": {"type": "string", "enum": ["PASS", "FAIL", "NOT_VERIFIABLE"]},
                 "summary": {"type": "string"},
                 "evidence": {"type": "array", "items": {
                     "type": "object",
@@ -208,36 +210,38 @@ def check_evidence(ev, root, bdir):
     return False, f"quote not found in {f}"
 
 
-def judge(raw, reqs, root, bdir, release=False, unverifiable_at_release="fail"):
+def judge(raw, reqs, root, bdir):
+    """Requirement results from the reviewer's answer. The model's verdict is an input, not the result:
+    only quotes found verbatim in the cited files count as evidence."""
     verdicts = {v["id"]: v for v in (raw or {}).get("verdicts", [])}
     results, detail = [], []
     for r in reqs:
         v = verdicts.get(r["id"])
         if v is None:
-            results.append(Result(r["id"], FAIL, "reviewer returned no verdict (unproven)"))
-            detail.append({"id": r["id"], "status": FAIL, "reason": "no verdict"})
+            results.append(Result(r["id"], WARN, "reviewer returned no verdict", outcome=NOT_VERIFIABLE))
+            detail.append({"id": r["id"], "status": WARN, "outcome": NOT_VERIFIABLE, "reason": "no verdict"})
             continue
         checked = [(e, *check_evidence(e, root, bdir)) for e in v.get("evidence", [])]
         good = [e for e, ok, _ in checked if ok]
         bad = [f"{e.get('file')}: {why}" for e, ok, why in checked if not ok]
         verdict = v["verdict"]
+        outcome = None
         if verdict == "PASS":
-            st = PASS if good else FAIL
-            why = v["summary"] if good else "PASS claimed without verifiable evidence (unproven)"
+            st, outcome = (PASS, VERIFIED) if good else (WARN, NOT_VERIFIABLE)
+            why = v["summary"] if good else f"PASS claimed without verifiable evidence (unproven): {v['summary']}"
         elif verdict == "FAIL":
-            st = FAIL if good else WARN
-            why = v["summary"] if good else f"unverified claim (check manually): {v['summary']}"
-        elif verdict == "WARN":
-            st, why = WARN, v["summary"]
-        else:
-            st = FAIL if (release and unverifiable_at_release == "fail") else WARN
+            st, outcome = (FAIL, FAILED) if good else (WARN, NOT_VERIFIABLE)
+            why = v["summary"] if good else f"unverified defect claim (check manually): {v['summary']}"
+        else:  # NOT_VERIFIABLE, or the legacy WARN
+            st, outcome = WARN, NOT_VERIFIABLE
             why = f"not verifiable: {v['summary']}"
         vio = [] if st == PASS else [{"key": r["id"], "text": why}]
         vio += [{"key": f"{r['id']}-ev{i}", "text": f"discarded evidence: {b}"} for i, b in enumerate(bad)]
-        results.append(Result(r["id"], st, why, evidence=[f"{e['file']} [{e.get('locator', '')}]" for e in good],
-                              violations=vio if st != PASS else []))
-        detail.append({"id": r["id"], "model_verdict": verdict, "status": st, "summary": v["summary"],
-                       "evidence_ok": len(good), "evidence_rejected": bad,
+        ev = [{"path": str(_resolve(e, root, bdir)), "locator": e.get("locator", ""), "quote": e["quote"]}
+              for e in good]
+        results.append(Result(r["id"], st, why, evidence=ev, violations=vio, outcome=outcome))
+        detail.append({"id": r["id"], "model_verdict": verdict, "status": st, "outcome": outcome,
+                       "summary": v["summary"], "evidence_ok": len(good), "evidence_rejected": bad,
                        "evidence": [{**e, "valid": ok, "why": w} for e, ok, w in checked]})
     extras = []
     for i, x in enumerate((raw or {}).get("extra_findings", [])):
@@ -252,6 +256,11 @@ def judge(raw, reqs, root, bdir, release=False, unverifiable_at_release="fail"):
                               f"{len(extras)} additional findings from the reviewer",
                               violations=[{"key": e["key"], "text": e["text"]} for e in extras]))
     return results, detail, extras
+
+
+def _resolve(ev, root, bdir):
+    f = (ev.get("file") or "").replace("\\", "/").lstrip("./")
+    return next((c for c in (Path(root) / f, bdir / f, bdir / Path(f).name) if c.is_file()), Path(root) / f)
 
 
 # ------------------------------------------------------------------ run
@@ -286,12 +295,34 @@ def run_reviewer(root, bdir, model, timeout_s=1800):
     return raw, meta
 
 
-def write_report(proj, model_meta, detail, extras, results):
+def write_report(proj, model_meta, detail, extras, results, reqs_hash=None):
     rep = {"tool": "kicad-verify", "kind": "review", "time": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-           "design_hash": config.design_hash(proj["root"]), "reviewer": model_meta,
+           "design_hash": config.design_hash(proj["root"]), "requirements_hash": reqs_hash, "reviewer": model_meta,
            "overall": FAIL if any(r.status == FAIL for r in results) else WARN if any(r.status == WARN for r in results) else PASS,
-           "requirements": detail, "extra_findings": extras}
+           "requirements": detail, "extra_findings": extras, "results": [r.as_dict() for r in results]}
     f = proj["dir"] / "reports" / "review_report.json"
     f.parent.mkdir(parents=True, exist_ok=True)
     f.write_text(json.dumps(rep, indent=2, ensure_ascii=False), encoding="utf-8")
     return rep, f
+
+
+def load_current(proj, design_hash, reqs_hash):
+    """(results, report path) of the last review when it was made for this design and requirement
+    set, else (None, reason)."""
+    f = proj["dir"] / "reports" / "review_report.json"
+    if not f.exists():
+        return None, "no review report"
+    try:
+        rep = json.loads(f.read_text(encoding="utf-8"))
+    except Exception as e:
+        return None, f"unreadable review report: {e}"
+    if rep.get("design_hash") != design_hash:
+        return None, f"last review is for design {str(rep.get('design_hash'))[:12]}"
+    if rep.get("requirements_hash") != reqs_hash:
+        return None, "the reviewed requirement set has changed since the last review"
+    if not rep.get("results"):
+        return None, "the last review did not run"
+    res = [Result.from_dict(d) for d in rep["results"]]
+    for r in res:
+        r.evidence = list(r.evidence) + [f]
+    return res, f

@@ -4,7 +4,7 @@ Own implementation because `kicad-cli pcb drc --schematic-parity` hangs (>10 min
 with KiCad 10.0.5 on at least one real project, while the netlist export takes ~1 s.
 """
 from ..netlist import norm_net
-from ..report import FAIL, PASS, SKIP, WARN, Result
+from ..report import FAIL, PASS, WARN, Result, coverage, not_verifiable
 from ..waivers import vkey
 
 PCB_ONLY = ("MountingHole", "Fiducial", "TestPoint", "NetTie", "Logo")
@@ -13,13 +13,16 @@ NON_ELECTRICAL_PAD = {"", "MP", "SH", "S", "0", "EP_MECH"}
 
 def run(board, nl, label):
     if nl is None:
-        return [Result("PCB-PARITY-001", SKIP, f"{label}: no schematic"), Result("PCB-PINMAP-001", SKIP, "")]
+        return [not_verifiable("PCB-PARITY-001", f"{label}: no schematic netlist"),
+                not_verifiable("PCB-PINMAP-001", f"{label}: no schematic netlist")]
     comps, pin_net = nl["components"], nl["pin_net"]
     pcb = {fp["ref"]: fp for fp in board["footprints"]}
-    diffs, pinmap = [], []
+    diffs, pinmap, n_comp, n_pins = [], [], 0, 0
     for ref, c in comps.items():
         if ref.startswith("#") or c.get("exclude_from_board"):
             continue
+        n_comp += 1
+        n_pins += len(c["pins"])
         if ref not in pcb:
             diffs.append(f"{ref}: in the schematic, missing on the PCB")
             continue
@@ -54,8 +57,10 @@ def run(board, nl, label):
             diffs.append(f"{ref}: on the PCB, not in the schematic")
     return [
         Result("PCB-PARITY-001", FAIL if diffs else PASS, f"{label}: {len(diffs)} schematic/PCB differences",
-               violations=[{"key": vkey("parity", d), "text": d} for d in diffs]),
+               violations=[{"key": vkey("parity", d), "text": d} for d in diffs],
+               coverage=coverage("schematic components", n_comp)),
         Result("PCB-PINMAP-001", FAIL if any("has no pad" in p for p in pinmap) else WARN if pinmap else PASS,
                f"{label}: {len(pinmap)} symbol-pin/footprint-pad mismatches",
-               violations=[{"key": vkey("pinmap", p), "text": p} for p in pinmap]),
+               violations=[{"key": vkey("pinmap", p), "text": p} for p in pinmap],
+               coverage=coverage("symbol pins", n_pins)),
     ]

@@ -76,8 +76,8 @@ def post_tool(p):
     rep, _ = analyse(root, "fast")
     st["fast_hash"] = h
     _save(root, st)
-    if rep["overall"] == report.FAIL:
-        print(report.text(rep), file=sys.stderr)
+    if not rep["verification"]["gates"]["dev"]["pass"]:
+        print(report.text(rep, gate="dev"), file=sys.stderr)
         return 2
     return 0
 
@@ -92,14 +92,14 @@ def stop(p):
         return 0
     from .cli import analyse, do_review
     rep, ctx = analyse(root, "full")
-    text = report.text(rep)
-    failed = rep["overall"] == report.FAIL
+    text = report.text(rep, gate="dev")
+    failed = not rep["verification"]["gates"]["dev"]["pass"]
     proj = ctx["proj"]
     review_note = ""
     dh = config.design_hash(root)
     if not failed and proj["project"].get("status") == "release" and proj["project"].get("release_design_hash") != dh \
             and st.get("reviewed_design") != dh:
-        results, rr = do_review(root, release=True, rep=rep, ctx=ctx)
+        results, rr, rep = do_review(root, rep=rep, ctx=ctx)
         st["reviewed_design"] = dh
         bad = [r for r in results if r.status == report.FAIL]
         if bad:
@@ -111,6 +111,7 @@ def stop(p):
         st.update(verified_hash=h, retries=0, blocked_hash=None)
         _save(root, st)
         if rep["overall"] == report.WARN or review_note:
+            text = report.text(rep, gate="dev")
             print(json.dumps({"systemMessage": text + review_note}))
         return 0
     retries = int(st.get("retries", 0)) + 1

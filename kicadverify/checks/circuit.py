@@ -9,7 +9,7 @@ Net voltages come from net names (+3V3, 5V, VBUS, GND...), fixed-regulator outpu
 import re
 
 from ..netlist import parse_value
-from ..report import FAIL, PASS, SKIP, WARN, Result
+from ..report import FAIL, PASS, WARN, Result, coverage, not_verifiable
 from ..waivers import vkey
 
 GND_RE = re.compile(r"^(/)?(A|D|P|S|C)?GND[A-Z0-9_]*$|^(/)?VSS[A-Z]?$|^(/)?0V$|^(/)?EARTH$", re.I)
@@ -163,7 +163,8 @@ def _vf(c):
 
 def run(nl, label, params):
     if nl is None:
-        return [Result("CIR-POL-001", SKIP, f"{label}: no schematic netlist")]
+        return [not_verifiable(c, f"{label}: no schematic netlist") for c in
+                ("CIR-POL-001", "CIR-REG-001", "CIR-LED-001", "CIR-BJT-001", "CIR-FLOAT-001")], None
     cir = Circuit(nl, params)
     logic_v = float(params.get("logic_high_v", 3.3))
     led_max = float(params.get("led_max_ma", 20))
@@ -172,15 +173,40 @@ def run(nl, label, params):
     res = []
 
     # ------------------------------------------------------------ polarity
-    pol = []
+    pol, pol_total, pol_gap = [], 0, []
+
+    def side_v(net, ref):
+        """Voltage of a pin's side: its net, or the far end of one series resistor; a logic output or a
+        transistor switch counts as a known (non-negative) drive."""
+        for n, excl in [(net, ref)] + [(f, rr) for rr, _, f in cir.through_resistor(net, ref)]:
+            v, how = cir.drive_level(n, excl)
+            if v is not None or how in ("logic", "switch"):
+                return v if v is not None else logic_v
+        return None
+
     for r, k in cir.kind.items():
         c = cir.c[r]
+        if k in ("led", "diode", "clamp", "ecap"):
+            pol_total += 1
         if k in ("led", "diode", "clamp"):
             a = cir.pin_by_name(r, "A", "ANODE", "+")
             kk = cir.pin_by_name(r, "K", "CATHODE", "-")
             if not a or not kk:
+                pol_gap.append({"key": vkey("polgap", r), "text": f"{r} ({c['value']}): pins not named A/K"})
                 continue
             va, vk = cir.v.get(a), cir.v.get(kk)
+            across = {n["ref"] for n in cir.others(a, r) if cir.kind.get(n["ref"]) in ("relay", "inductor")} & \
+                {n["ref"] for n in cir.others(kk, r)}
+            if k == "led":
+                decided = side_v(a, r) is not None and side_v(kk, r) is not None
+            elif k == "diode":
+                # a flyback across a coil with its cathode on a known rail is decided too
+                decided = va is not None or bool(across and vk is not None)
+            else:
+                decided = va is not None and vk is not None
+            if not decided:
+                pol_gap.append({"key": vkey("polgap", r), "text": f"{r} ({c['value']}): voltage of {a} / {kk} unknown "
+                                                                  "(name the rail or set net_voltages)"})
             if k == "led":
                 # anode pulled to GND (directly or through its series resistor) => reversed / never lights
                 a_low = va == 0 or any(cir.v.get(f) == 0 for _, _, f in cir.through_resistor(a, r))
@@ -205,17 +231,23 @@ def run(nl, label, params):
             plus = next((net for num, (nm, net) in pins.items() if nm == "+" or (not nm and num == "1")), None)
             minus = next((net for num, (nm, net) in pins.items() if nm == "-" or (not nm and num == "2")), None)
             vp, vm = cir.v.get(plus), cir.v.get(minus)
+            if vp is None or vm is None:
+                pol_gap.append({"key": vkey("polgap", r), "text": f"{r} ({c['value']}): voltage of {plus} / {minus} unknown"})
             if vp is not None and vm is not None and vp < vm:
                 pol.append(f"{r} ({c['value']}): polarized capacitor reversed (+ on {plus}={vp} V, - on {minus}={vm} V)")
     res.append(Result("CIR-POL-001", FAIL if pol else PASS, f"{label}: {len(pol)} polarity errors",
-                      violations=[{"key": vkey("pol", p.split(':')[0]), "text": p} for p in pol]))
+                      violations=[{"key": vkey("pol", p.split(':')[0]), "text": p} for p in pol],
+                      coverage=coverage("polarized parts", pol_total, pol_gap)))
 
     # ------------------------------------------------------------ fixed regulators vs rail
-    reg = []
+    reg, reg_gap = [], []
     for r, (net, vout, _) in cir.reg_out.items():
         named = net_voltage_from_name(net)
         over = (params.get("net_voltages") or {}).get(net)
         expected = float(over) if over is not None else named
+        if expected is None:
+            reg_gap.append({"key": vkey("reggap", r), "text": f"{r} ({cir.c[r]['value']}): rail {net} has no "
+                                                              "voltage in its name or net_voltages"})
         if expected is not None and abs(expected - vout) > max(0.05 * expected, 0.1):
             reg.append(f"{r} ({cir.c[r]['value']}) outputs {vout} V on rail {net} ({expected} V)")
         vin_net = next((cir.pin_net.get((r, num)) for num, p in cir.c[r]["pins"].items()
@@ -225,16 +257,19 @@ def run(nl, label, params):
             reg.append(f"{r} ({cir.c[r]['value']}): input {vin_net}={vin} V cannot regulate {vout} V (dropout)")
     res.append(Result("CIR-REG-001", FAIL if reg else PASS,
                       f"{label}: {len(reg)} fixed-regulator output/input mismatches ({len(cir.reg_out)} regulators recognised)",
-                      violations=[{"key": vkey("reg", x.split(' ')[0], x[-20:]), "text": x} for x in reg]))
+                      violations=[{"key": vkey("reg", x.split(' ')[0], x[-20:]), "text": x} for x in reg],
+                      coverage=coverage("fixed regulators recognised", len(cir.reg_out), reg_gap)))
 
     # ------------------------------------------------------------ LED current
-    led_issues, led_info = [], []
+    led_issues, led_info, led_total, led_gap = [], [], 0, []
     for r, k in cir.kind.items():
         if k != "led":
             continue
+        led_total += 1
         a = cir.pin_by_name(r, "A", "ANODE")
         kk = cir.pin_by_name(r, "K", "CATHODE")
         if not a or not kk:
+            led_gap.append({"key": vkey("ledgap", r), "text": f"{r}: pins not named A/K"})
             continue
         vf = _vf(cir.c[r])
         found = False
@@ -264,35 +299,48 @@ def run(nl, label, params):
                     led_issues.append((WARN, txt + f" < {led_min} mA (too dim or not lit)"))
         if not found and not any(cir.kind.get(n["ref"]) == "resistor" for n in cir.others(a, r) + cir.others(kk, r)):
             led_issues.append((WARN, f"{r}: no series resistor found (constant-current driver?)"))
+        elif not found:
+            led_gap.append({"key": vkey("ledgap", r), "text": f"{r}: current not computable (drive level or "
+                                                              "resistor value unknown)"})
     st = FAIL if any(s == FAIL for s, _ in led_issues) else WARN if led_issues else PASS
     res.append(Result("CIR-LED-001", st, f"{label}: {len(led_issues)} LED current problems ({len(led_info)} LEDs computed)",
-                      violations=[{"key": vkey("led", t.split(':')[0], s), "text": t} for s, t in led_issues]))
+                      violations=[{"key": vkey("led", t.split(':')[0], s), "text": t} for s, t in led_issues],
+                      coverage=coverage("LEDs", led_total, led_gap)))
 
     # ------------------------------------------------------------ BJT base drive
-    bjt = []
+    bjt, bjt_total, bjt_gap = [], 0, []
     for r, k in cir.kind.items():
         if k != "npn":
             continue
+        bjt_total += 1
         b = cir.pin_by_name(r, "B")
         if not b:
+            bjt_gap.append({"key": vkey("bjtgap", r), "text": f"{r}: no pin named B"})
             continue
         rs = cir.through_resistor(b, r)
         direct = [n for n in cir.others(b, r) if (n["type"] or "") in ("output", "bidirectional", "tri_state")
                   and cir.kind.get(n["ref"]) == "other"]
         if direct and not rs:
             bjt.append(f"{r}: base driven directly by {direct[0]['ref']}.{direct[0]['name'] or direct[0]['pin']} without a resistor")
+        if not direct and not rs:
+            bjt_gap.append({"key": vkey("bjtgap", r), "text": f"{r}: base drive not recognised"})
         for rref, ohms, far in rs:
             vdrv, how = cir.drive_level(far, rref)
             vdrv = logic_v if how == "logic" else vdrv
+            if not ohms or vdrv is None:
+                bjt_gap.append({"key": vkey("bjtgap", r), "text": f"{r}: base current through {rref} not "
+                                                                        "computable (drive level or value unknown)"})
             if ohms and vdrv and vdrv > 0:
                 ib = (vdrv - 0.7) / ohms * 1000
                 if ib > gpio_max:
                     bjt.append(f"{r}: base current {ib:.1f} mA through {rref} ({cir.c[rref]['value']}) exceeds {gpio_max} mA")
     res.append(Result("CIR-BJT-001", FAIL if bjt else PASS, f"{label}: {len(bjt)} transistor base-drive problems",
-                      violations=[{"key": vkey("bjt", x.split(':')[0], x[-25:]), "text": x} for x in bjt]))
+                      violations=[{"key": vkey("bjt", x.split(':')[0], x[-25:]), "text": x} for x in bjt],
+                      coverage=coverage("NPN transistors", bjt_total,
+                                        list({g["text"].split(":")[0]: g for g in bjt_gap}.values()))))
 
     # ------------------------------------------------------------ floating control pins
-    flo = []
+    flo, ctl_total = [], 0
     for r, c in cir.c.items():
         if r.startswith("#") or cir.kind.get(r) != "other":
             continue
@@ -300,6 +348,7 @@ def run(nl, label, params):
             nm = (p["name"] or "").replace("~{", "").replace("}", "")
             if not CONTROL_PIN.match(nm) or (p["type"] or "") not in ("input", "bidirectional", "passive", ""):
                 continue
+            ctl_total += 1
             net = cir.pin_net.get((r, num))
             if net is None or net.startswith("unconnected-"):
                 flo.append(f"{r}.{nm} (pin {num}) is not connected")
@@ -310,5 +359,6 @@ def run(nl, label, params):
             if not others:
                 flo.append(f"{r}.{nm} on {net} has no other connection (floating)")
     res.append(Result("CIR-FLOAT-001", WARN if flo else PASS, f"{label}: {len(flo)} enable/reset pins floating",
-                      violations=[{"key": vkey("float", x.split(' ')[0]), "text": x} for x in flo]))
+                      violations=[{"key": vkey("float", x.split(' ')[0]), "text": x} for x in flo],
+                      coverage=coverage("enable/reset/boot pins", ctl_total)))
     return res, cir

@@ -21,24 +21,34 @@ def main():
              "For the reviewer, the finding must name the modified component (or value) and be new or more "
              "severe than on the baseline.", ""]
     det = sum(1 for r in rows if r.get("deterministic"))
-    lines += [f"**Deterministic gate: {det}/{len(rows)}** defects caught "
-              "(the two it misses are judgement calls with no rule: they are the reviewer's job).", ""]
+    blocked = sum(1 for r in rows if r.get("fab_gate_blocked"))
+    lines += [f"**Deterministic checks: {det}/{len(rows)}** defects caught. "
+              f"**Fab gate: {blocked}/{len(rows)}** defects block it "
+              "(the two that do not are judgement calls with no rule: they are the reviewer's job, at the release gate).",
+              "",
+              "Requirement-level run: the fixture is configured with the reference verification set in "
+              "[tests/reference/rele](../tests/reference/rele) (fab profile, pins from the datasheets, mounting holes, "
+              "approved footprints, waivers with reasons, three project assertions). On the unmodified board the fab "
+              f"gate {'passes' if data.get('baseline_fab_gate') else 'does NOT pass'}; requirements FAILED at baseline: "
+              f"{', '.join(data.get('baseline_failed') or []) or 'none'} (release gate only). "
+              "\"Requirements newly FAILED\" lists the requirements whose verdict changed to FAILED with the defect.", ""]
     have_rev = any(f"reviewer_{m}" in r for r in rows for m in MODELS)
     for g, title in groups.items():
         gr = [r for r in rows if r["group"] == g]
         if not gr:
             continue
         lines += [f"## {title}", ""]
-        head = "| Defect | Expected check | Deterministic gate | Other checks that also fired |"
-        sep = "|---|---|---|---|"
+        head = "| Defect | Expected check | Deterministic checks | Fab gate | Requirements newly FAILED | Other checks that also fired |"
+        sep = "|---|---|---|---|---|---|"
         if have_rev and g == "circuit":
             head += "".join(f" Reviewer {NAMES[m]} |" for m in MODELS)
             sep += "---|" * len(MODELS)
         lines += [head, sep]
         for r in gr:
             others = [c for c in r.get("deterministic_checks", []) if c != r["expected"]]
-            cells = [r["mutation"], r["expected"], "caught" if r.get("deterministic") else "missed",
-                     ", ".join(others) or "-"]
+            fab = "-" if "fab_gate_blocked" not in r else ("blocked" if r["fab_gate_blocked"] else "passes")
+            cells = [r["mutation"], r["expected"], "caught" if r.get("deterministic") else "missed", fab,
+                     ", ".join(r.get("requirements_failed") or []) or "-", ", ".join(others) or "-"]
             if have_rev and g == "circuit":
                 for m in MODELS:
                     v = r.get(f"reviewer_{m}")
