@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.5.0 — 2026-10-06
+- `--annotations github` on `verify`, `review` and `release`: one GitHub Actions annotation per requirement that blocks the gate or is FAILED, on the line of the first component its findings name in the schematic or board (else the first evidence file), with paths relative to the repository root, most severe first within GitHub's 10 errors / 10 warnings per step. The `init --ci github` workflow uses it.
+
 ## 0.4.0 — 2026-10-06
 - ISO-SEP-001: copper separation across declared isolation barriers (mains to low voltage, line to neutral...), selected by net class (from the `.kicad_pro` patterns) or nets, measured per copper layer over tracks, vias, pads and zone fills, independently of the board's DRC rules. A shortfall on a board with cutouts or slots is NOT_VERIFIABLE (creepage around slots is not computed). The required distances and their sources are declared by the project; none are shipped. Breaking: projects without a hazardous voltage exclude the requirement with that reason, otherwise it is NOT_VERIFIABLE at the fab gate.
 - Seeded bank: ground copper 2.8 mm from mains with and without the designer's mains rule in `.kicad_dru`; without it the DRC requirement stays VERIFIED and only ISO-SEP-001 fails. 20 of 22 defects block the fab gate.

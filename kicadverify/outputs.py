@@ -1,6 +1,8 @@
 """Report renderings for people and CI systems: Markdown (traceability matrix, gate verdicts,
 coverage, deviations, limits) and JUnit XML (one test case per requirement)."""
+import re
 import xml.etree.ElementTree as ET
+from pathlib import Path
 
 from .report import FAILED, NOT_RUN, NOT_VERIFIABLE, VERDICTS, VERIFIED
 
@@ -146,3 +148,83 @@ def junit(rep):
             out += [f"waived {d['key']}: {d['reason']}" for d in v.get("deviations", [])]
             ET.SubElement(tc, "system-out").text = "\n".join(out)
     return ET.tostring(suites, encoding="unicode", xml_declaration=True)
+
+
+# ------------------------------------------------------------------ GitHub annotations
+GH_LIMIT = 10  # GitHub shows at most 10 error and 10 warning annotations per step
+_REF = re.compile(r"\b([A-Z]{1,4}[0-9]{1,4})\b")
+
+
+def _gh_escape(s, prop=False):
+    s = str(s).replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+    return s.replace(":", "%3A").replace(",", "%2C") if prop else s
+
+
+def _locate(root, v, design=()):
+    """(file, line) for an annotation: the first referenced component's block in the schematic or
+    board the requirement's evidence points to; else the first evidence file (KiCad files first);
+    else the board of the design; else None."""
+    ev = [a["path"] for e in v.get("evidence", []) for a in e.get("artifacts", [])
+          if a.get("path") and a.get("sha256") and not a["path"].startswith("verification/")]
+    kicad = [f for f in ev if f.endswith((".kicad_sch", ".kicad_pcb", ".kicad_pro", ".kicad_dru"))]
+    files = list(dict.fromkeys(kicad + ev)) or [f for f in design if f.endswith(".kicad_pcb")][:1]
+    texts = [f.get("text", "") for f in v.get("findings", [])] + \
+            [u.get("text", "") for u in (v.get("coverage") or {}).get("unchecked", [])]
+    refs = [m for t in texts for m in _REF.findall(t)]
+    for f in sorted(files, key=lambda p: not p.endswith((".kicad_sch", ".kicad_pcb"))):
+        p = Path(root) / f
+        if refs and p.suffix in (".kicad_sch", ".kicad_pcb") and p.is_file():
+            needles = [f'(property "Reference" "{r}"' for r in refs[:5]]
+            for i, line in enumerate(p.read_text(encoding="utf-8", errors="ignore").splitlines(), 1):
+                if any(n in line for n in needles):
+                    return f, i
+    return (files[0], None) if files else (None, None)
+
+
+def _repo_root(root):
+    import os
+    import subprocess
+    if os.environ.get("GITHUB_WORKSPACE"):
+        return Path(os.environ["GITHUB_WORKSPACE"])
+    try:
+        top = subprocess.run(["git", "rev-parse", "--show-toplevel"], cwd=root, capture_output=True, text=True,
+                             timeout=20).stdout.strip()
+        return Path(top) if top else Path(root)
+    except Exception:
+        return Path(root)
+
+
+def github_annotations(rep, root, gate="dev", repo_root=None):
+    """GitHub Actions workflow commands, one per requirement that blocks `gate` or FAILED, most
+    severe first, within GitHub's per-step limits; the rest are counted in a final notice. File
+    paths are relative to the repository root, as GitHub expects."""
+    repo_root = Path(repo_root or _repo_root(root)).resolve()
+    ver = rep["verification"]
+    blockers = {b["id"] for b in ver["gates"][gate]["blockers"]}
+    order = {FAILED: 0, NOT_VERIFIABLE: 1, NOT_RUN: 2}
+    vs = sorted((v for v in ver["requirements"] if v["status"] == FAILED or v["id"] in blockers),
+                key=lambda v: (v.get("severity") != "error", order.get(v["status"], 3), v["id"]))
+    design = [a["path"] for a in ((rep.get("provenance") or {}).get("artifacts") or {}).get("groups", {}).get("design", [])]
+    lines, counts, dropped = [], {"error": 0, "warning": 0}, 0
+    for v in vs:
+        level = "error" if v["id"] in blockers and v["status"] == FAILED else "warning"
+        if counts[level] >= GH_LIMIT:
+            dropped += 1
+            continue
+        counts[level] += 1
+        f, line = _locate(root, v, design)
+        if f:
+            try:
+                f = str((Path(root) / f).resolve().relative_to(repo_root)).replace("\\", "/")
+            except ValueError:
+                pass
+        props = ([f"file={_gh_escape(f, True)}"] if f else []) + ([f"line={line}"] if line else [])
+        props.append(f"title={_gh_escape(v['id'] + ' ' + v['status'], True)}")
+        body = [v["text"], v["reason"]]
+        body += [f"- {x['text']}" for x in v.get("findings", [])[:5]]
+        body += [f"- not checked: {u['text']}" for u in ((v.get("coverage") or {}).get("unchecked") or [])[:5]]
+        lines.append(f"::{level} {','.join(props)}::{_gh_escape(chr(10).join(body))}")
+    if dropped:
+        lines.append(f"::notice title=kicad-verify::{dropped} more requirements are not annotated "
+                     "(GitHub limit); see the job summary")
+    return "\n".join(lines)

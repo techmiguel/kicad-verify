@@ -83,7 +83,7 @@ kicadverify checks [--markdown]                  # what each verifier covers and
 kicadverify profiles                             # built-in fab capability profiles
 ```
 
-`verify` writes `verification/pcb/reports/verification_report.md` (gates, blockers with the action for each, traceability matrix, details, deviations, evidence hashes) and `verify_report.json`; `--junit` and `--markdown` write copies for CI (`--markdown "$GITHUB_STEP_SUMMARY"` appends to the job summary). Exit codes: 0 gate passes, 1 blocked, 2 the requirement set has errors, 3 no KiCad project.
+`verify` writes `verification/pcb/reports/verification_report.md` (gates, blockers with the action for each, traceability matrix, details, deviations, evidence hashes) and `verify_report.json`; `--junit` and `--markdown` write copies for CI (`--markdown "$GITHUB_STEP_SUMMARY"` appends to the job summary), and `--annotations github` prints one GitHub annotation per requirement that blocks the gate, on the line of the component it names in the schematic or board, so it shows in the pull request diff. Exit codes: 0 gate passes, 1 blocked, 2 the requirement set has errors, 3 no KiCad project.
 
 ### With Claude Code
 After `kicadverify install-claude`:
