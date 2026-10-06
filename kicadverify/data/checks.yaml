@@ -187,6 +187,13 @@ checks:
     inputs: [.kicad_pcb, .kicad_sch]
     covers: The property stated in the requirement's `check:` block (pin_net, value, footprint, field, net_exists, board_size, layer_count, track_width)
     limits: Only what the assertion states
+  GEN-INTENT-001:
+    title: Design intent declared
+    layer: project
+    modes: [fast, full]
+    inputs: [verification/pcb/design_intent.md]
+    covers: "Fields of design_intent.md (lines like `- Field: value`) that are filled; each empty field is an unchecked item. The intent digest is recorded in every report, review and attestation"
+    limits: Whether what is declared is true or complete beyond the listed fields
   REVIEW:
     title: Independent reviewer (clean `claude -p` session, evidence re-checked by code)
     layer: review

@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.3.0 — 2026-10-06
+Provenance: the system can show exactly what it verified, what it could not verify, under which policy and tool versions, over which artifacts and against which design intent.
+- `provenance` block in every report: policy digest with one digest per component (requirements, params, gates, waivers, exclusions, fab profile, verifier registry, reviewer prompt, pins) and the hashed policy files; tools (kicad-verify version, code digest and git commit, kicad-cli, kicad-happy pinned tag and installed commit, Python, platform, CI variables); every artifact (design, fabrication, datasheets, config) with SHA-256; the design intent (declared and empty fields, context files). Markdown report gains a Provenance table.
+- GEN-INTENT-001: the design intent must be declared; each empty field of design_intent.md is a coverage gap (NOT_VERIFIABLE at the release gate).
+- The independent review is reused only while the design hash and the review key (requirements, design intent, datasheets, reviewer prompt) are unchanged; the review report records the bundle digest, the `claude` CLI version and the model that answered.
+- In-toto attestations (`verify --attest`, always on for `release`), signable with `ssh-keygen -Y sign` (`--sign-key`, `KICAD_VERIFY_SIGN_KEY`); `check-attestation` verifies the signature and recomputes every digest against the files on disk; `explain <REQ>` prints the chain of proof behind one verdict.
+- Release manifest records the policy, intent and artifacts digests and the attestation.
+
 ## 0.2.0 — 2026-10-06
 From a verification gate to a requirements-based verification framework.
 - Every requirement has a source (`kind`, `ref`, `url`, `confirmed`), a method (auto / model / human), the verifiers that decide it (`verified_by`), an acceptance criterion and a gate, and ends VERIFIED, FAILED, NOT_VERIFIABLE or NOT_RUN. Nothing is VERIFIED by default.

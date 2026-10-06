@@ -138,6 +138,10 @@ requirements:
     verified_by: ["@orphans"]
     gate: dev
     source: {kind: best_practice, ref: "Every finding is traced to a requirement or resolved"}
+  - id: GEN-INTENT-001
+    text: "The design intent the board is judged against is declared (every field of design_intent.md filled or waived)"
+    gate: release
+    source: {kind: best_practice, ref: "A board can only be judged against what it is for: supply, loads, environment, fab"}
   # --- independent reviewer (evidence is re-checked by code)
   - id: MOD-PINOUT-001
     method: model

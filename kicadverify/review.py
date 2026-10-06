@@ -19,7 +19,7 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
-from . import config
+from . import config, evidence
 from .checks.circuit import Circuit
 from .report import FAIL, FAILED, NOT_VERIFIABLE, PASS, VERIFIED, WARN, Result
 
@@ -295,9 +295,28 @@ def run_reviewer(root, bdir, model, timeout_s=1800):
     return raw, meta
 
 
-def write_report(proj, model_meta, detail, extras, results, reqs_hash=None):
+def provenance_of(root, bdir, prov, key):
+    """What the reviewer was given: a digest of every bundle file, the intent and policy digests, the
+    `claude` CLI version. The model that actually answered is added from the run metadata."""
+    from . import provenance
+    files = {str(f.relative_to(bdir)).replace("\\", "/"): evidence.sha256(f)
+             for f in sorted(bdir.rglob("*")) if f.is_file() and f.name != "reviewer_raw.json"}
+    claude = shutil.which("claude")
+    ver = None
+    if claude:
+        try:
+            ver = subprocess.run([claude, "--version"], capture_output=True, text=True, timeout=60).stdout.strip()
+        except Exception:
+            ver = None
+    return {"review_key": key, "bundle_digest": provenance.digest(files), "bundle_files": files,
+            "intent_digest": prov["intent"]["digest"], "policy_digest": prov["policy"]["digest"],
+            "claude_cli": ver}
+
+
+def write_report(proj, model_meta, detail, extras, results, review_key=None, prov=None):
     rep = {"tool": "kicad-verify", "kind": "review", "time": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-           "design_hash": config.design_hash(proj["root"]), "requirements_hash": reqs_hash, "reviewer": model_meta,
+           "design_hash": config.design_hash(proj["root"]), "review_key": review_key, "provenance": prov,
+           "reviewer": model_meta,
            "overall": FAIL if any(r.status == FAIL for r in results) else WARN if any(r.status == WARN for r in results) else PASS,
            "requirements": detail, "extra_findings": extras, "results": [r.as_dict() for r in results]}
     f = proj["dir"] / "reports" / "review_report.json"
@@ -306,23 +325,26 @@ def write_report(proj, model_meta, detail, extras, results, reqs_hash=None):
     return rep, f
 
 
-def load_current(proj, design_hash, reqs_hash):
-    """(results, report path) of the last review when it was made for this design and requirement
-    set, else (None, reason)."""
+def load_current(proj, design_hash, review_key):
+    """(results, reason, provenance) of the last review when it was made for this design and the same
+    review inputs (requirements, design intent, datasheets, prompt), else (None, reason, None)."""
     f = proj["dir"] / "reports" / "review_report.json"
     if not f.exists():
-        return None, "no review report"
+        return None, "no review report", None
     try:
         rep = json.loads(f.read_text(encoding="utf-8"))
     except Exception as e:
-        return None, f"unreadable review report: {e}"
+        return None, f"unreadable review report: {e}", None
     if rep.get("design_hash") != design_hash:
-        return None, f"last review is for design {str(rep.get('design_hash'))[:12]}"
-    if rep.get("requirements_hash") != reqs_hash:
-        return None, "the reviewed requirement set has changed since the last review"
+        return None, f"last review is for design {str(rep.get('design_hash'))[:12]}", None
+    if rep.get("review_key") != review_key:
+        return None, ("the review inputs changed since the last review (requirements, design intent, "
+                      "datasheets or reviewer prompt)"), None
     if not rep.get("results"):
-        return None, "the last review did not run"
+        return None, "the last review did not run", None
     res = [Result.from_dict(d) for d in rep["results"]]
     for r in res:
         r.evidence = list(r.evidence) + [f]
-    return res, f
+    prov = rep.get("provenance") or {}
+    prov = {**prov, "reviewer": rep.get("reviewer"), "report": {"path": str(f), "sha256": evidence.sha256(f)}}
+    return res, "reused", prov

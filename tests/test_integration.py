@@ -2,6 +2,7 @@
 
 KICAD_CLI may point to a wrapper that runs kicad-cli from the official image (see the CI template
 written by `kicadverify init --ci github`)."""
+import json
 import os
 import shutil
 import subprocess
@@ -80,3 +81,18 @@ def test_seeded_defect_blocks_the_gate(board, tmp_path, mutation, req):
     rep, _ = analyse(d, "full")
     assert _status(rep)[req] == "FAILED"
     assert not rep["verification"]["gates"]["fab"]["pass"]
+
+
+def test_attestation_on_real_board(board):
+    from kicadverify import attest
+    rep, _ = analyse(board, "full")
+    prov = rep["provenance"]
+    assert prov["tools"]["kicad-cli"]["version"] and prov["tools"]["kicad-happy"]["pinned"]
+    assert prov["intent"]["complete"] and prov["policy"]["fab_profile"] == "jlcpcb-1-2-layer-standard"
+    st = {v["id"]: v["status"] for v in rep["verification"]["requirements"]}
+    assert st["GEN-INTENT-001"] == "VERIFIED"
+    f = attest.write(attest.statement(rep), board / "verification" / "pcb" / "attestations")
+    res = attest.check(f, board)
+    assert res["holds"], res
+    groups = {s["annotations"]["group"] for s in json.loads(f.read_text())["subject"]}
+    assert {"design", "fabrication", "datasheets", "config"} <= groups

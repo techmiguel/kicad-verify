@@ -46,6 +46,7 @@ Defects seeded into a real board that was fabricated and assembled ([smartRele](
 - **Coverage** is explicit: each verifier reports `checked/total` items and lists what it could not check (a polarized part on a net of unknown voltage, a Gerber layer never exported, a fab limit missing from the profile). Partial coverage is NOT_VERIFIABLE until a person checks those items and waives them with a reason. What each verifier never covers is printed next to every verdict ([docs/COVERAGE.md](docs/COVERAGE.md)).
 - **Evidence**: hashed input files, raw ERC/DRC JSON, the reviewer's verbatim quotes (searched in the cited file; a PASS without a valid quote is not accepted), sign-offs bound to the design hash, waivers with reason, author and expiry.
 - **Gates**: `dev` blocks on confirmed defects (Claude Code hooks, after every edit); `fab` answers "ready to fabricate" and runs in CI without API keys; `release` adds the reviewer and the human sign-offs. A FAILED requirement with an error-level defect blocks every gate.
+- **Provenance**: every report records the policy digest (per component), the tools (kicad-verify code digest and commit, kicad-cli, kicad-happy commit), every artifact's SHA-256 and the design intent it was judged against. `--attest` writes an in-toto attestation, signable with an SSH key, that `check-attestation` re-verifies against the files on disk; `explain <REQ>` prints the chain of proof behind one verdict.
 - **Release record**: `release` writes a manifest with the SHA-256 of every design file, fabrication output, config and report, and every verdict. `audit` fails if anything changed before upload.
 
 The model in detail: [docs/VERIFICATION.md](docs/VERIFICATION.md).
@@ -72,6 +73,9 @@ kicadverify review path/to/project               # + independent reviewer (~2-5 
 kicadverify signoff HUM-FIT-001 --by "Name" [--fail --note "..."] --path path/to/project
 kicadverify release path/to/project              # fab gate + review + sign-offs -> release manifest
 kicadverify audit path/to/project                # files still match the release manifest?
+kicadverify verify path/to/project --attest --sign-key ~/.ssh/id_ed25519   # signed in-toto attestation
+kicadverify check-attestation FILE --path path/to/project --allowed-signers allowed_signers
+kicadverify explain CIR-POL-001 --path path/to/project   # source, evidence, coverage, policy, tools, intent
 kicadverify requirements path/to/project [--lint | --markdown]   # traceability table
 kicadverify checks [--markdown]                  # what each verifier covers and does not
 kicadverify profiles                             # built-in fab capability profiles
@@ -101,6 +105,7 @@ Existing hooks in `~/.claude/settings.json` are kept; a backup is written on fir
 | `waivers.yaml` | One entry per accepted finding or coverage gap: reason, date, author, expiry |
 | `signoff.yaml` | Human sign-offs (written by `kicadverify signoff`) |
 | `release/` | Release manifests (keep them in version control) |
+| `attestations/` | In-toto verification attestations and their SSH signatures (keep them in version control) |
 
 A complete example for a real board: [tests/reference/rele](tests/reference/rele).
 
