@@ -202,7 +202,7 @@ checks:
     covers: Judgement requirements where a rule cannot decide; every quote is searched verbatim in the cited file
     limits: Only what is in the bundle and project files (no web); non-deterministic; can share blind spots with the tools that generated the design
   SIGNOFF:
-    title: Human sign-off bound to the design hash
+    title: Human sign-off bound to the design hash and the policy digest
     layer: human
     modes: [signoff]
     inputs: [verification/pcb/signoff.yaml]

@@ -6,6 +6,7 @@ Provenance: the system can show exactly what it verified, what it could not veri
 - GEN-INTENT-001: the design intent must be declared; each empty field of design_intent.md is a coverage gap (NOT_VERIFIABLE at the release gate).
 - The independent review is reused only while the design hash and the review key (requirements, design intent, datasheets, reviewer prompt) are unchanged; the review report records the bundle digest, the `claude` CLI version and the model that answered.
 - In-toto attestations (`verify --attest`, always on for `release`), signable with `ssh-keygen -Y sign` (`--sign-key`, `KICAD_VERIFY_SIGN_KEY`); `check-attestation` verifies the signature and recomputes every digest against the files on disk; `explain <REQ>` prints the chain of proof behind one verdict.
+- Human sign-offs are bound to the policy digest as well as the design hash: a sign-off made under another policy is NOT_RUN, naming the policy components that changed. Breaking: sign-offs from 0.2 must be renewed.
 - Release manifest records the policy, intent and artifacts digests and the attestation.
 
 ## 0.2.0 — 2026-10-06

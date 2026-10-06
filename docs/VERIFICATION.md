@@ -161,6 +161,12 @@ are the same. The attestation holds when the signature is valid (if given), ever
 unchanged, no design or fabrication file was added, and the design, policy and intent digests match.
 A different tool version is reported but does not by itself void the claim about the files.
 
+Human sign-offs are bound to both the design hash and the policy digest. A sign-off made under
+another policy (a changed requirement, threshold, waiver, exclusion or fab profile) no longer
+counts: the requirement goes back to NOT_RUN with the components that changed named in the reason,
+and the person signs again under the current policy. Entries written before 0.3 carry no policy
+digest and must be renewed.
+
 `project.yaml` is not an input of the verification (`release` writes the status into it), so it is
 not part of the subject.
 

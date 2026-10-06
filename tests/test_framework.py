@@ -500,3 +500,24 @@ def test_signed_attestation(tmp_path):
     f.write_text(f.read_text().replace('"FAILED": 1', '"FAILED": 0'))
     res = attest.check(f, tmp_path, allowed)
     assert res["signature"]["valid"] is False and not res["holds"]
+
+
+def test_signoff_bound_to_policy(tmp_path):
+    proj = _prov_project(tmp_path)
+    reqs = [r for r in proj["requirements"] if r["id"] == "HUM-FIT-001"]
+    signoff.add(tmp_path, "HUM-FIT-001", "ana", "ok")
+    pol = provenance.policy(config.load_project(tmp_path))
+    assert verdict(reqs, signoff.results(tmp_path, reqs, policy=pol))["HUM-FIT-001"]["status"] == VERIFIED
+    assert signoff.pending(tmp_path, reqs, pol) == []
+    (tmp_path / "verification" / "pcb" / "waivers.yaml").write_text(yaml.safe_dump(
+        {"waivers": [{"check": "X", "key": "k", "reason": "r", "date": "2026-01-01"}]}))
+    pol2 = provenance.policy(config.load_project(tmp_path))
+    v = verdict(reqs, signoff.results(tmp_path, reqs, policy=pol2))["HUM-FIT-001"]
+    assert v["status"] == NOT_RUN and "changed: waivers" in v["reason"]
+    assert signoff.pending(tmp_path, reqs, pol2) == ["HUM-FIT-001"]
+    legacy = tmp_path / "verification" / "pcb" / "signoff.yaml"
+    data = yaml.safe_load(legacy.read_text())
+    data["signoffs"][0].pop("policy_digest")
+    legacy.write_text(yaml.safe_dump(data))
+    v = verdict(reqs, signoff.results(tmp_path, reqs, policy=pol2))["HUM-FIT-001"]
+    assert v["status"] == NOT_RUN and "no policy binding" in v["reason"]

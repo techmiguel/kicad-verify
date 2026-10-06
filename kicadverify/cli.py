@@ -126,7 +126,7 @@ def finish(root, proj, mode, raw_results, dh=None, review_note=None, prov=None, 
     rep = report.build(proj["project"]["name"], mode, results, report.tool_versions(config.KICAD_CLI), {
         "status": proj["project"]["status"], "design_hash": dh,
         "requirements_hash": requirements.requirements_hash(reqs),
-        "human_pending": signoff.pending(root, reqs), "verification": ver, "provenance": prov,
+        "human_pending": signoff.pending(root, reqs, prov["policy"]), "verification": ver, "provenance": prov,
         "review_provenance": review_prov})
     cache = proj["dir"] / "reports"
     report.write(cache / "verify_report.json", rep)
@@ -142,7 +142,7 @@ def analyse(root, mode="full"):
     dh = config.design_hash(root)
     det, designs, kh = checks(root, proj, mode)
     prov = provenance.collect(root, proj, sorted(kh))
-    raw = det + [intent_check(prov, root)] + signoff.results(root, proj["requirements"], dh)
+    raw = det + [intent_check(prov, root)] + signoff.results(root, proj["requirements"], dh, prov["policy"])
     rkey = review_key(prov, requirements.requirements_hash(proj["requirements"]))
     rev, why, rprov = review.load_current(proj, dh, rkey)
     rep, results = finish(root, proj, mode, raw + (rev or []), dh, None if rev else why, prov, rprov)
@@ -345,8 +345,9 @@ def main(argv=None):
         if a.id not in ids:
             print(f"{a.id} is not a human requirement ({', '.join(sorted(ids))})", file=sys.stderr)
             return EXIT_CONFIG
-        signoff.add(root, a.id, a.by, a.note, "fail" if a.fail else "pass")
-        print(f"Signed {a.id} ({'FAIL' if a.fail else 'pass'}) for design {config.design_hash(root)[:12]}")
+        signoff.add(root, a.id, a.by, a.note, "fail" if a.fail else "pass", provenance.policy(proj))
+        print(f"Signed {a.id} ({'FAIL' if a.fail else 'pass'}) for design {config.design_hash(root)[:12]} "
+              f"under policy {provenance.policy(proj)['digest'][7:19]}")
         return 0
     if a.cmd == "datasheets":
         from . import datasheets
