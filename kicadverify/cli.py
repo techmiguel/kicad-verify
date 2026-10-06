@@ -1,12 +1,13 @@
 import argparse
 import copy
 import json
+import os
 import sys
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-from . import (config, interface, manifest, netlist, outputs, report, requirements, review, signoff,
-               waivers)
+from . import (attest, config, interface, manifest, netlist, outputs, provenance, report, requirements, review,
+               signoff, waivers)
 from .checks import assertions, board as board_mod
 from .checks import circuit, dfm, fab, happy, kicad_cli, parity
 from .report import FAIL, PASS, SKIP, WARN, Result
@@ -86,10 +87,34 @@ def checks(root, proj, mode):
     return results, designs, kh_summaries
 
 
-def finish(root, proj, mode, raw_results, dh=None, review_note=None):
+def intent_check(prov, root):
+    """GEN-INTENT-001: the design intent the board is judged against is declared."""
+    i = prov["intent"]
+    f = (i.get("file") or {}).get("path") or f"{config.DIRNAME}/{provenance.INTENT_FILE}".replace("\\", "/")
+    if not i["present"]:
+        return report.not_verifiable("GEN-INTENT-001", "no design intent file", f"write {f}")
+    total = len(i["declared"]) + len(i["missing"])
+    if not total:
+        return report.not_verifiable("GEN-INTENT-001", f"{f} declares no fields ('- Field: value' lines)")
+    gaps = [{"key": waivers.vkey("intent", m), "text": f"{m}: not declared"} for m in i["missing"]]
+    return Result("GEN-INTENT-001", PASS, f"{len(i['declared'])}/{total} intent fields declared "
+                  f"(intent {i['digest'][7:19]})", evidence=[Path(root) / f],
+                  coverage=report.coverage("design intent fields", total, gaps))
+
+
+def review_key(prov, reqs_hash):
+    """What a review depends on besides the design: the requirements it judged, the intent and context
+    it was given, the datasheets it could quote and the prompt it ran with."""
+    return provenance.digest({"requirements": reqs_hash, "intent": prov["intent"]["digest"],
+                              "datasheets": provenance.digest(prov["artifacts"]["groups"]["datasheets"]),
+                              "prompt": prov["policy"]["components"]["reviewer_prompt"]})
+
+
+def finish(root, proj, mode, raw_results, dh=None, review_note=None, prov=None, review_prov=None):
     """Waivers, requirement verdicts, gates and report files from the raw verifier results."""
     root = Path(root)
     dh = dh or config.design_hash(root)
+    prov = prov or provenance.collect(root, proj)
     results = waivers.apply(_filter_disabled(copy.deepcopy(raw_results), proj["disabled"]), proj["waivers"])
     reqs = proj["requirements"]
     dfm.apply_profile_source(reqs, proj["params"])
@@ -101,7 +126,8 @@ def finish(root, proj, mode, raw_results, dh=None, review_note=None):
     rep = report.build(proj["project"]["name"], mode, results, report.tool_versions(config.KICAD_CLI), {
         "status": proj["project"]["status"], "design_hash": dh,
         "requirements_hash": requirements.requirements_hash(reqs),
-        "human_pending": signoff.pending(root, reqs), "verification": ver})
+        "human_pending": signoff.pending(root, reqs, prov["policy"]), "verification": ver, "provenance": prov,
+        "review_provenance": review_prov})
     cache = proj["dir"] / "reports"
     report.write(cache / "verify_report.json", rep)
     (cache / "verification_report.md").write_text(outputs.markdown(rep), encoding="utf-8")
@@ -115,11 +141,13 @@ def analyse(root, mode="full"):
     proj = config.load_project(root)
     dh = config.design_hash(root)
     det, designs, kh = checks(root, proj, mode)
-    raw = det + signoff.results(root, proj["requirements"], dh)
-    rev, why = review.load_current(proj, dh, requirements.requirements_hash(proj["requirements"]))
-    rep, results = finish(root, proj, mode, raw + (rev or []), dh, None if rev else why)
+    prov = provenance.collect(root, proj, sorted(kh))
+    raw = det + [intent_check(prov, root)] + signoff.results(root, proj["requirements"], dh, prov["policy"])
+    rkey = review_key(prov, requirements.requirements_hash(proj["requirements"]))
+    rev, why, rprov = review.load_current(proj, dh, rkey)
+    rep, results = finish(root, proj, mode, raw + (rev or []), dh, None if rev else why, prov, rprov)
     return rep, {"proj": proj, "designs": designs, "kh": kh, "raw": raw, "results": results, "dh": dh,
-                 "review_current": rev is not None}
+                 "review_current": rev is not None, "prov": prov, "review_key": rkey}
 
 
 def _interface(k, params, proj):
@@ -140,18 +168,21 @@ def do_review(root, model=None, rep=None, ctx=None):
     reqs_model = [r for r in proj["requirements"] if r["method"] == "model"]
     bdir, reqs = review.build_bundle(proj["root"], proj, ctx["designs"], rep, ctx["kh"])
     timeout = int((proj["params"].get("review") or {}).get("timeout_s", 1800))
-    rh = requirements.requirements_hash(proj["requirements"])
+    rkey = ctx["review_key"]
+    rprov = review.provenance_of(proj["root"], bdir, ctx["prov"], rkey)
     try:
         raw, meta = review.run_reviewer(proj["root"], bdir, model, timeout)
     except Exception as e:
         res = [Result("REV-RUN", FAIL, f"reviewer did not run: {e}")]
-        review.write_report(proj, {"model": model, "error": str(e)}, [], [], [], rh)
-        rep2, _ = finish(root, proj, rep["mode"], ctx["raw"] + res, ctx["dh"])
+        review.write_report(proj, {"model": model, "error": str(e)}, [], [], [], rkey, rprov)
+        rep2, _ = finish(root, proj, rep["mode"], ctx["raw"] + res, ctx["dh"], prov=ctx["prov"])
         return res, None, rep2
     (bdir / "reviewer_raw.json").write_text(json.dumps(raw, indent=1, ensure_ascii=False), encoding="utf-8")
     results, detail, extras = review.judge(raw, reqs, proj["root"], bdir)
-    rr, path = review.write_report(proj, meta, detail, extras, results, rh)
-    rep2, waived = finish(root, proj, rep["mode"], ctx["raw"] + results, ctx["dh"])
+    rprov["reviewer"] = meta
+    rr, path = review.write_report(proj, meta, detail, extras, results, rkey, rprov)
+    rep2, waived = finish(root, proj, rep["mode"], ctx["raw"] + results, ctx["dh"], prov=ctx["prov"],
+                          review_prov=rprov)
     ids = {r["id"] for r in reqs_model} | {"REV-EXTRA"}
     return [r for r in waived if r.check_id in ids], rr, rep2
 
@@ -197,7 +228,8 @@ def main(argv=None):
                                              "has a source, a verification method, evidence, explicit coverage and a "
                                              "status VERIFIED / FAILED / NOT_VERIFIABLE / NOT_RUN")
     sub = ap.add_subparsers(dest="cmd", required=True)
-    for name in ("verify", "init", "status", "review", "release", "interface", "requirements", "datasheets", "audit"):
+    for name in ("verify", "init", "status", "review", "release", "interface", "requirements", "datasheets", "audit",
+                 "attest"):
         p = sub.add_parser(name)
         p.add_argument("path", nargs="?", default=".")
         if name in ("verify", "review", "release"):
@@ -212,6 +244,12 @@ def main(argv=None):
                                 "fabricate; release: everything VERIFIED)")
         if name in ("review", "release"):
             p.add_argument("--model", help="reviewer model (default: project reviewer_model)")
+        if name in ("verify", "review", "release", "attest"):
+            p.add_argument("--attest", action="store_true", default=name in ("release", "attest"),
+                           help="write an in-toto attestation of this verification to verification/pcb/attestations/")
+            p.add_argument("--sign-key", default=os.environ.get("KICAD_VERIFY_SIGN_KEY"),
+                           help="SSH private key to sign the attestation (ssh-keygen -Y sign); "
+                                "default $KICAD_VERIFY_SIGN_KEY")
         if name == "release":
             p.add_argument("--rerun-review", action="store_true",
                            help="run the reviewer even when a review for this exact design is on record")
@@ -227,6 +265,14 @@ def main(argv=None):
     p.add_argument("--by", required=True)
     p.add_argument("--note", default="")
     p.add_argument("--fail", action="store_true", help="record that the check found the requirement NOT met")
+    p.add_argument("--path", default=".")
+    p = sub.add_parser("check-attestation", help="re-check an attestation against the files on disk")
+    p.add_argument("attestation")
+    p.add_argument("--path", default=".")
+    p.add_argument("--allowed-signers", help="ssh allowed_signers file to verify the signature")
+    p.add_argument("--identity", help="expected signer identity (default: looked up in allowed signers)")
+    p = sub.add_parser("explain", help="the chain of proof behind one requirement's verdict")
+    p.add_argument("id")
     p.add_argument("--path", default=".")
     p = sub.add_parser("checks", help="list the verifiers with what they cover and do not cover")
     p.add_argument("--markdown", action="store_true")
@@ -255,6 +301,9 @@ def main(argv=None):
                   f"{'  (UNCONFIRMED: ' + src.get('note', '').strip() + ')' if src.get('confirmed') is False else ''}")
             print("  " + ", ".join(f"{k}={v}" for k, v in pr.items() if k not in ("title", "source")))
         return 0
+
+    if a.cmd == "check-attestation":
+        return _check_attestation(a)
 
     root, initialised = config.find_root(a.path)
     if root is None:
@@ -296,8 +345,9 @@ def main(argv=None):
         if a.id not in ids:
             print(f"{a.id} is not a human requirement ({', '.join(sorted(ids))})", file=sys.stderr)
             return EXIT_CONFIG
-        signoff.add(root, a.id, a.by, a.note, "fail" if a.fail else "pass")
-        print(f"Signed {a.id} ({'FAIL' if a.fail else 'pass'}) for design {config.design_hash(root)[:12]}")
+        signoff.add(root, a.id, a.by, a.note, "fail" if a.fail else "pass", provenance.policy(proj))
+        print(f"Signed {a.id} ({'FAIL' if a.fail else 'pass'}) for design {config.design_hash(root)[:12]} "
+              f"under policy {provenance.policy(proj)['digest'][7:19]}")
         return 0
     if a.cmd == "datasheets":
         from . import datasheets
@@ -325,11 +375,18 @@ def main(argv=None):
         for g, p_, d in diffs:
             print(f"  {g:<12} {p_}: {d}")
         return EXIT_BLOCKED
-    if a.cmd == "verify":
-        rep, _ = analyse(root, "fast" if a.fast else "full")
-        _emit(rep, a, a.gate)
-        print(json.dumps(rep, indent=2, ensure_ascii=False) if a.json else report.text(rep, not a.all, gate=a.gate))
-        return _exit(rep, a.gate)
+    if a.cmd == "explain":
+        return _explain(root, a.id)
+    if a.cmd in ("verify", "attest"):
+        fast = getattr(a, "fast", False)
+        gate = getattr(a, "gate", "fab")
+        rep, _ = analyse(root, "fast" if fast else "full")
+        _emit(rep, a, gate)
+        print(json.dumps(rep, indent=2, ensure_ascii=False) if getattr(a, "json", False) else
+              report.text(rep, not getattr(a, "all", False), gate=gate))
+        if a.attest and not _attest(root, proj, rep, a.sign_key):
+            return EXIT_CONFIG
+        return _exit(rep, gate)
     if a.cmd in ("review", "release"):
         rep, ctx = analyse(root, "full")
         if a.cmd == "release" and not rep["verification"]["gates"]["fab"]["pass"]:
@@ -350,14 +407,121 @@ def main(argv=None):
         if a.cmd == "review" or code != EXIT_OK:
             if a.cmd == "release" and code != EXIT_OK:
                 print("Release blocked: see the blockers above.", file=sys.stderr)
+            if a.attest and a.cmd == "review":
+                _attest(root, proj, rep, a.sign_key)
             return code
         _set_release(root, proj)
         review_path = proj["dir"] / "reports" / "review_report.json"
-        man = manifest.build(root, proj, rep, review_path)
+        att = _attest(root, proj, rep, a.sign_key) if a.attest else None
+        man = manifest.build(root, proj, rep, review_path, att)
         path = manifest.write(root, proj, man)
         print(f"Released: design {config.design_hash(root)[:12]} (status: release). Manifest: {path}\n"
               "Run `kicadverify audit` before uploading the files to the fab.")
         return 0
+    return 0
+
+
+def _attest(root, proj, rep, key=None):
+    """Writes (and signs, with a key) the attestation of `rep`. Returns its path, or None on error."""
+    try:
+        stmt = attest.statement(rep)
+        f = attest.write(stmt, proj["dir"] / "attestations")
+        sig = attest.sign(f, key) if key else None
+    except Exception as e:
+        print(f"Attestation failed: {e}", file=sys.stderr)
+        return None
+    print(f"Attestation: {f}" + (f" (signed: {sig.name})" if sig else " (unsigned: pass --sign-key to sign it)"))
+    return f
+
+
+def _check_attestation(a):
+    f = Path(a.attestation)
+    root, _ = config.find_root(a.path)
+    if root is None:
+        print("No KiCad project found from", a.path, file=sys.stderr)
+        return EXIT_NO_PROJECT
+    try:
+        res = attest.check(f, root, a.allowed_signers, a.identity)
+    except (ValueError, json.JSONDecodeError) as e:
+        print(f"{f}: {e}", file=sys.stderr)
+        return EXIT_CONFIG
+    p = res["predicate"]
+    print(f"Attestation {f.name}: {p['project']}, design {p['design_hash'][:12]}, verified {p['verified_at']}")
+    sig = res["signature"]
+    print("  signature:  " + ("not signed" if sig is None and not Path(str(f) + '.sig').exists() else
+                              f"VALID ({sig['signer']})" if sig and sig["valid"] else
+                              f"NOT VERIFIED ({(sig or {}).get('error')})"))
+    sub = res["subject"]
+    print(f"  artifacts:  {len(sub['unchanged'])} unchanged, {len(sub['changed'])} changed, {len(sub['missing'])} missing,"
+          f" {len(res['new'])} new design/fabrication files")
+    for k in ("changed", "missing"):
+        for x in sub[k]:
+            print(f"    {k}: {x}")
+    for x in res["new"]:
+        print(f"    new: {x}")
+    for k, same in res["same"].items():
+        was, now = res["values"][k]
+        print(f"  {k:<18}{'same' if same else 'DIFFERENT'}"
+              + ("" if same else f": attested {was}, now {now}")
+              + (f" (changed: {', '.join(res.get('policy_components_changed', []))})" if k == "policy" and not same else ""))
+    s = p["summary"]["by_status"]
+    print(f"  claimed:    {', '.join(f'{k} {v}' for k, v in s.items())}; gates "
+          + ", ".join(f"{k} {'PASS' if g['pass'] else 'BLOCKED'}" for k, g in p["gates"].items()))
+    print("The attestation " + ("HOLDS for the files on disk." if res["holds"] else
+                                "does NOT hold for the files on disk (see above)."))
+    return 0 if res["holds"] else EXIT_BLOCKED
+
+
+def _explain(root, rid):
+    f = Path(root) / config.DIRNAME / "reports" / "verify_report.json"
+    if not f.exists():
+        print("No verification report yet: run `kicadverify verify` first.", file=sys.stderr)
+        return EXIT_BLOCKED
+    rep = json.loads(f.read_text(encoding="utf-8"))
+    v = next((x for x in rep["verification"]["requirements"] if x["id"] == rid), None)
+    if v is None:
+        ex = next((e for e in rep["verification"].get("excluded", []) if e["id"] == rid), None)
+        print(f"{rid}: excluded ({ex.get('reason') or 'no reason given'})" if ex else f"{rid}: not in the report",
+              file=sys.stderr)
+        return EXIT_CONFIG
+    prov = rep.get("provenance") or {}
+    cur = config.design_hash(root) == rep["design_hash"]
+    L = [f"{v['id']}: {v['status']}" + (f" ({v['severity']})" if v.get("severity") else ""),
+         f"  requirement  {v['text']}",
+         f"  source       {(v.get('source') or {}).get('kind')}: {(v.get('source') or {}).get('ref')}"
+         + (" (UNCONFIRMED)" if (v.get("source") or {}).get("confirmed") is False else ""),
+         f"  method       {v['method']} via {', '.join(v['verified_by'])}; acceptance {v['acceptance']}; gate {v['gate']}",
+         f"  reason       {v['reason']}"]
+    c = v.get("coverage")
+    if c:
+        L.append(f"  coverage     {c['checked']}/{c['total']} {c['scope']}")
+        L += [f"    not checked [{u['key']}] {u['text']}" for u in c.get("unchecked", [])]
+    L += [f"  finding      [{x['key']}] {x['text']}" for x in v.get("findings", [])]
+    L += [f"  deviation    [{d['key']}] {d['text']} - waived: {d['reason']} ({d.get('by') or 'unnamed'}, {d['date']})"
+          for d in v.get("deviations", [])]
+    for e in v.get("evidence", []):
+        L.append(f"  evidence     {e['check']}: {e['status']} -> {e.get('outcome') or '-'}: {e['detail'][:120]}")
+        for art in e["artifacts"]:
+            if art.get("sha256"):
+                q = f" \"{art['quote'][:80]}\"" if art.get("quote") else ""
+                L.append(f"               {art['path']} sha256:{art['sha256'][:16]}{q}")
+    if v.get("limits"):
+        L.append(f"  not covered  {v['limits']}")
+    if prov:
+        t = prov["tools"]
+        L += [f"  verified at  {rep['time']} ({rep['mode']} mode) on design {rep['design_hash'][:12]}"
+              + ("" if cur else " - the design has CHANGED since"),
+              f"  policy       {prov['policy']['digest'][:23]} ({prov['policy']['requirements']} requirements, "
+              f"{prov['policy']['waivers']} waivers, fab profile {prov['policy']['fab_profile']})",
+              f"  intent       {prov['intent']['digest'][:23]} ({len(prov['intent']['declared'])} fields declared, "
+              f"{len(prov['intent']['missing'])} missing)",
+              f"  tools        kicad-verify {t['kicad-verify']['version']} {t['kicad-verify']['code_digest'][:23]}, "
+              f"{t['kicad-cli']['version']}, kicad-happy {t['kicad-happy']['pinned']}"]
+        rp = rep.get("review_provenance")
+        if v["method"] == "model" and rp:
+            L.append(f"  reviewer     {(rp.get('reviewer') or {}).get('models') or (rp.get('reviewer') or {}).get('model')}, "
+                     f"bundle {rp.get('bundle_digest', '')[:23]}, claude {rp.get('claude_cli')}")
+    print("\n".join(L))
     return 0
 
 

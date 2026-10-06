@@ -29,18 +29,27 @@ def _files(root, proj):
     return {k: {evidence.rel(f, root): evidence.sha256(f) for f in v if Path(f).is_file()} for k, v in groups.items()}
 
 
-def build(root, proj, rep, review_report=None):
+def build(root, proj, rep, review_report=None, attestation=None):
     root = Path(root)
     reports = {}
     for name, f in (("verification_report", proj["dir"] / "reports" / "verify_report.json"),
                     ("review_report", review_report)):
         if f and Path(f).is_file():
             reports[name] = {"path": evidence.rel(f, root), "sha256": evidence.sha256(f)}
+    if attestation and Path(attestation).is_file():
+        reports["attestation"] = {"path": evidence.rel(attestation, root), "sha256": evidence.sha256(attestation)}
+        sig = Path(str(attestation) + ".sig")
+        if sig.is_file():
+            reports["attestation_signature"] = {"path": evidence.rel(sig, root), "sha256": evidence.sha256(sig)}
     ver = rep["verification"]
+    prov = rep.get("provenance") or {}
     return {
         "schema": SCHEMA, "project": proj["project"]["name"],
         "time": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-        "design_hash": config.design_hash(root), "tools": rep.get("tools"),
+        "design_hash": config.design_hash(root), "tools": prov.get("tools") or rep.get("tools"),
+        "policy_digest": (prov.get("policy") or {}).get("digest"),
+        "intent_digest": (prov.get("intent") or {}).get("digest"),
+        "artifacts_digest": (prov.get("artifacts") or {}).get("digest"),
         "gates": {k: v["pass"] for k, v in ver["gates"].items()},
         "summary": ver["summary"],
         "requirements": [{"id": v["id"], "status": v["status"], "method": v["method"], "gate": v["gate"],

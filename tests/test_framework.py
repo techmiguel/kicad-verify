@@ -405,3 +405,119 @@ def test_registry_covers_every_base_check():
         assert c.get("title") and c.get("covers") and c.get("limits") and c.get("modes")
     assert {"FAB-RULES-001", "FAB-DFM-001", "REVIEW", "SIGNOFF", "ASSERT"} <= set(reg)
     assert not_verifiable("X", "d").outcome == NOT_VERIFIABLE
+
+
+# ------------------------------------------------------------------ provenance and attestations
+import shutil as _shutil  # noqa: E402
+import subprocess as _subprocess  # noqa: E402
+
+from kicadverify import attest, provenance  # noqa: E402
+
+
+def _prov_project(tmp_path):
+    (tmp_path / "b.kicad_pro").write_text("{}")
+    (tmp_path / "b.kicad_pcb").write_text("(kicad_pcb)")
+    (tmp_path / "fab").mkdir()
+    (tmp_path / "fab" / "b-F_Cu.gbr").write_text("G04*")
+    config.init_project(tmp_path)
+    return config.load_project(tmp_path)
+
+
+def test_policy_digest_is_deterministic_and_attributes_changes(tmp_path):
+    proj = _prov_project(tmp_path)
+    p1, p2 = provenance.policy(proj), provenance.policy(config.load_project(tmp_path))
+    assert p1["digest"] == p2["digest"] and p1["digest"].startswith("sha256:")
+    (tmp_path / "verification" / "pcb" / "waivers.yaml").write_text(yaml.safe_dump(
+        {"waivers": [{"check": "X", "key": "k", "reason": "r", "date": "2026-01-01"}]}))
+    p3 = provenance.policy(config.load_project(tmp_path))
+    assert p3["digest"] != p1["digest"]
+    assert [k for k in p1["components"] if p1["components"][k] != p3["components"][k]] == ["waivers"]
+
+
+def test_intent_parsing(tmp_path):
+    proj = _prov_project(tmp_path)
+    i = provenance.intent(tmp_path, proj)
+    assert i["present"] and not i["declared"] and len(i["missing"]) == 7 and not i["complete"]
+    (tmp_path / "verification" / "pcb" / "design_intent.md").write_text(
+        "# Intent\n- Purpose of the board: relay\n- Supply input (voltage, source): 5 V USB\n- Loads:\n")
+    j = provenance.intent(tmp_path, proj)
+    assert j["declared"] == {"Purpose of the board": "relay", "Supply input (voltage, source)": "5 V USB"}
+    assert j["missing"] == ["Loads"] and j["digest"] != i["digest"]
+    r = cli.intent_check({"intent": j}, tmp_path)
+    assert r.coverage["checked"] == 2 and r.coverage["total"] == 3
+    assert verdict([req("GEN-INTENT-001")], [r])["GEN-INTENT-001"]["status"] == NOT_VERIFIABLE
+
+
+def test_review_is_invalidated_by_intent_change(tmp_path):
+    proj = _prov_project(tmp_path)
+    prov = provenance.collect(tmp_path, proj)
+    key = cli.review_key(prov, "RH")
+    review.write_report(proj, {"model": "m"}, [], [], [Result("M", PASS, "ok")], key, {"bundle_digest": "x"})
+    dh = config.design_hash(tmp_path)
+    assert review.load_current(proj, dh, key)[0] is not None
+    (tmp_path / "verification" / "pcb" / "design_intent.md").write_text("- Purpose of the board: something else\n")
+    key2 = cli.review_key(provenance.collect(tmp_path, proj), "RH")
+    res, why, _ = review.load_current(proj, dh, key2)
+    assert res is None and "design intent" in why
+
+
+def _rep_with_prov(tmp_path, proj):
+    rep = _rep(tmp_path)
+    rep["provenance"] = provenance.collect(tmp_path, proj)
+    rep["design_hash"] = rep["provenance"]["design_hash"]
+    return rep
+
+
+def test_attestation_statement_and_check(tmp_path):
+    proj = _prov_project(tmp_path)
+    rep = _rep_with_prov(tmp_path, proj)
+    stmt = attest.statement(rep)
+    assert stmt["_type"] == attest.STATEMENT_TYPE and stmt["predicateType"] == attest.PREDICATE_TYPE
+    names = {s["name"]: s["annotations"]["group"] for s in stmt["subject"]}
+    assert names["b.kicad_pcb"] == "design" and names["fab/b-F_Cu.gbr"] == "fabrication"
+    pred = stmt["predicate"]
+    assert pred["summary"]["by_requirement"]["FAILED"] == ["B"] and pred["excluded"][0]["id"] == "Z"
+    assert pred["policy"]["digest"] and pred["intent"]["digest"] and pred["tools"]["kicad-verify"]["code_digest"]
+    f = attest.write(stmt, tmp_path / "att")
+    assert attest.check(f, tmp_path)["holds"]
+    (tmp_path / "fab" / "b-F_Cu.gbr").write_text("G04 changed*")
+    (tmp_path / "fab" / "b-B_Cu.gbr").write_text("G04*")
+    res = attest.check(f, tmp_path)
+    assert not res["holds"] and res["subject"]["changed"] == ["fab/b-F_Cu.gbr"] and res["new"] == ["fab/b-B_Cu.gbr"]
+
+
+@pytest.mark.skipif(not _shutil.which("ssh-keygen"), reason="ssh-keygen not available")
+def test_signed_attestation(tmp_path):
+    proj = _prov_project(tmp_path)
+    key = tmp_path / "k"
+    _subprocess.run(["ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-C", "ana", "-f", str(key)], check=True)
+    allowed = tmp_path / "allowed_signers"
+    allowed.write_text("ana@example.org " + " ".join(key.with_suffix(".pub").read_text().split()[:2]) + "\n")
+    f = attest.write(attest.statement(_rep_with_prov(tmp_path, proj)), tmp_path / "att")
+    attest.sign(f, key)
+    res = attest.check(f, tmp_path, allowed)
+    assert res["signature"] == {"valid": True, "signer": "ana@example.org"} and res["holds"]
+    f.write_text(f.read_text().replace('"FAILED": 1', '"FAILED": 0'))
+    res = attest.check(f, tmp_path, allowed)
+    assert res["signature"]["valid"] is False and not res["holds"]
+
+
+def test_signoff_bound_to_policy(tmp_path):
+    proj = _prov_project(tmp_path)
+    reqs = [r for r in proj["requirements"] if r["id"] == "HUM-FIT-001"]
+    signoff.add(tmp_path, "HUM-FIT-001", "ana", "ok")
+    pol = provenance.policy(config.load_project(tmp_path))
+    assert verdict(reqs, signoff.results(tmp_path, reqs, policy=pol))["HUM-FIT-001"]["status"] == VERIFIED
+    assert signoff.pending(tmp_path, reqs, pol) == []
+    (tmp_path / "verification" / "pcb" / "waivers.yaml").write_text(yaml.safe_dump(
+        {"waivers": [{"check": "X", "key": "k", "reason": "r", "date": "2026-01-01"}]}))
+    pol2 = provenance.policy(config.load_project(tmp_path))
+    v = verdict(reqs, signoff.results(tmp_path, reqs, policy=pol2))["HUM-FIT-001"]
+    assert v["status"] == NOT_RUN and "changed: waivers" in v["reason"]
+    assert signoff.pending(tmp_path, reqs, pol2) == ["HUM-FIT-001"]
+    legacy = tmp_path / "verification" / "pcb" / "signoff.yaml"
+    data = yaml.safe_load(legacy.read_text())
+    data["signoffs"][0].pop("policy_digest")
+    legacy.write_text(yaml.safe_dump(data))
+    v = verdict(reqs, signoff.results(tmp_path, reqs, policy=pol2))["HUM-FIT-001"]
+    assert v["status"] == NOT_RUN and "no policy binding" in v["reason"]

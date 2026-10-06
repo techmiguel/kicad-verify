@@ -54,6 +54,7 @@ A requirement is VERIFIED only when every verifier behind it ran, found nothing 
 | Verifier | Modes | Inputs | Covers | Does not cover |
 |---|---|---|---|---|
 | ASSERT | fast, full | .kicad_pcb, .kicad_sch | The property stated in the requirement's `check:` block (pin_net, value, footprint, field, net_exists, board_size, layer_count, track_width) | Only what the assertion states |
+| GEN-INTENT-001 | fast, full | verification/pcb/design_intent.md | Fields of design_intent.md (lines like `- Field: value`) that are filled; each empty field is an unchecked item. The intent digest is recorded in every report, review and attestation | Whether what is declared is true or complete beyond the listed fields |
 
 ## Independent reviewer
 

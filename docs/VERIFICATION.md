@@ -117,6 +117,59 @@ design file, fabrication output and verification config, the reports, the verdic
 requirement and the deviations accepted. `kicadverify audit` recomputes the hashes right before the
 files go to the fab and fails on any difference.
 
+## Provenance and attestations
+
+Every report answers, for the run that produced it: what was verified, what could not be, under
+which policy and tools, over which artifacts and against which design intent. The `provenance`
+block of `verify_report.json` (and the Provenance table of the Markdown report) records:
+
+| | Identity | Changes when |
+|---|---|---|
+| Policy | SHA-256 over the effective policy, with one digest per component: requirements (normalised), params, gate policy, waivers, exclusions, fab profile, verifier registry, reviewer prompt, pins; plus the hash of every policy source file | any requirement, threshold, waiver, exclusion or profile value changes |
+| Tools | kicad-verify version, digest of its own code and data and git commit; kicad-cli version and path; kicad-happy pinned tag and installed commit; Python, platform, CI variables | a tool or its build changes |
+| Artifacts | SHA-256 of every design file, fabrication output, datasheet and config file | any byte of an input changes |
+| Design intent | the `- Field: value` lines of `design_intent.md` (declared and empty fields) and the context files given to the reviewer | the intent or the context changes |
+| Review | the review key (requirements, intent, datasheets, prompt), the digest of every bundle file, the `claude` CLI version and the model that actually answered | a review input changes |
+
+Digests are computed over canonical JSON, so identical inputs give identical digests.
+
+The design intent is a requirement of its own, GEN-INTENT-001: each empty field of
+`design_intent.md` is an unchecked item, so an undeclared intent is NOT_VERIFIABLE at the release
+gate instead of being silently assumed. A review is reused only while the design hash and the review
+key are unchanged: editing the intent, a datasheet, a reviewed requirement or the reviewer prompt
+makes the reviewer requirements NOT_RUN until it runs again.
+
+`kicadverify verify --attest` (always on for `release`) writes an
+[in-toto Statement v1](https://in-toto.io/Statement/v1) to `verification/pcb/attestations/`:
+`subject` lists every artifact with its SHA-256; the predicate
+(`https://github.com/techmiguel/kicad-verify/verification/v1`) holds the policy, tools, intent,
+gates and one entry per requirement with status, reason, source, verifiers, coverage and its gaps,
+limits, evidence digests (quotes included) and deviations, plus the excluded requirements with their
+reasons. With `--sign-key` (or `KICAD_VERIFY_SIGN_KEY`) it is signed with `ssh-keygen -Y sign`,
+namespace `kicad-verify`, the mechanism git uses for SSH-signed commits.
+
+```bash
+kicadverify verify . --gate fab --attest --sign-key ~/.ssh/id_ed25519
+kicadverify check-attestation verification/pcb/attestations/<file>.intoto.json --allowed-signers allowed_signers
+kicadverify explain CIR-POL-001        # the chain of proof behind one verdict
+```
+
+`check-attestation` verifies the signature and recomputes every digest from the files on disk: it
+lists the artifacts that changed, are missing or are new, and says whether the design, the policy
+(naming the components that changed), the intent, the kicad-verify code and the kicad-cli version
+are the same. The attestation holds when the signature is valid (if given), every subject artifact is
+unchanged, no design or fabrication file was added, and the design, policy and intent digests match.
+A different tool version is reported but does not by itself void the claim about the files.
+
+Human sign-offs are bound to both the design hash and the policy digest. A sign-off made under
+another policy (a changed requirement, threshold, waiver, exclusion or fab profile) no longer
+counts: the requirement goes back to NOT_RUN with the components that changed named in the reason,
+and the person signs again under the current policy. Entries written before 0.3 carry no policy
+digest and must be renewed.
+
+`project.yaml` is not an input of the verification (`release` writes the status into it), so it is
+not part of the subject.
+
 ## CI
 
 `kicadverify init --ci github` writes `.github/workflows/hw-verify.yml`: kicad-cli from the official

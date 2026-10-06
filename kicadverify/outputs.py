@@ -86,6 +86,30 @@ def markdown(rep, gate=None, limit=15):
         L += ["## Requirement set problems", ""]
         L += [f"- {x['level']}: {x['id']}: {_esc(x['text'])}" for x in ver["lint"]]
         L.append("")
+    prov = rep.get("provenance")
+    if prov:
+        t, pol, it = prov["tools"], prov["policy"], prov["intent"]
+        kv = t["kicad-verify"]
+        L += ["## Provenance", "", "| What | Identity |", "|---|---|",
+              f"| Design | `{rep['design_hash'][:16]}` ({len(prov['artifacts']['groups']['design'])} files) |",
+              f"| Artifacts | `{prov['artifacts']['digest'][:23]}` ("
+              + ", ".join(f"{len(v)} {k}" for k, v in prov["artifacts"]["groups"].items()) + ") |",
+              f"| Policy | `{pol['digest'][:23]}`: {pol['requirements']} requirements, {pol['waivers']} waivers, "
+              f"{pol['excluded']} excluded, fab profile {pol['fab_profile'] or 'none'} |",
+              f"| Design intent | `{it['digest'][:23]}`: {len(it['declared'])} fields declared, "
+              f"{len(it['missing'])} missing{' (' + ', '.join(it['missing']) + ')' if it['missing'] else ''} |",
+              f"| kicad-verify | {kv['version']} `{kv['code_digest'][:23]}`"
+              + (f" git {kv['git']['commit'][:12]}{' (dirty)' if kv['git']['dirty'] else ''}" if kv.get("git") else "")
+              + " |",
+              f"| kicad-cli | {t['kicad-cli']['version']} |",
+              f"| kicad-happy | {t['kicad-happy']['pinned']} {(t['kicad-happy'].get('commit') or 'not installed')[:12]} |",
+              f"| Python / platform | {t['python']} / {t['platform']} |"]
+        rp = rep.get("review_provenance")
+        if rp:
+            r = rp.get("reviewer") or {}
+            L.append(f"| Reviewer | {r.get('models') or r.get('model')}, claude {rp.get('claude_cli')}, "
+                     f"bundle `{rp.get('bundle_digest', '')[:23]}` |")
+        L += ["", "Policy components: " + ", ".join(f"{k} `{v[7:15]}`" for k, v in pol["components"].items()), ""]
     L += ["## Evidence", "", "Files read by the verifiers, with their SHA-256 at verification time:", ""]
     seen = {}
     for v in ver["requirements"]:

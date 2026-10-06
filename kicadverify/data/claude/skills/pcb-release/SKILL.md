@@ -7,3 +7,4 @@ Only when the user asks. Run `kicadverify release <project-path>`.
 - If it is blocked, show the blockers table (requirement, status, reason, action) and stop.
 - Human sign-offs are recorded by the user, never by you: tell them `kicadverify signoff <ID> --by "<name>"` (or `--fail --note "..."` when the check finds a problem) and what each item requires them to check physically.
 - After release, tell the user to run `kicadverify audit <project-path>` right before uploading the files to the fab: it fails if any design or fabrication file differs from the release manifest.
+- `release` also writes an in-toto attestation in `verification/pcb/attestations/` (signed when the user set `KICAD_VERIFY_SIGN_KEY` or passed `--sign-key`). `kicadverify check-attestation <file> --allowed-signers <file>` shows whether it still holds for the files on disk; `kicadverify explain <REQ>` shows the chain of proof behind one verdict.
