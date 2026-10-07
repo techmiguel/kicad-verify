@@ -26,7 +26,7 @@ Requirement-level run: the fixture is configured with the reference verification
 |---|---|---|---|---|---|
 | gerbers_stale | FAB-STALE-001 | caught | blocked | FAB-STALE-001, PCB-CONN-001, PCB-DRC-001 | PCB-CONN-001, PCB-DRC-001 |
 | drill_J1_1.3mm | FAB-DRILL-001 | caught | blocked | FAB-DRILL-001 | - |
-| MH1_moved_1mm | FAB-DRILL-001 | caught | blocked | FAB-DRILL-001, PCB-HOLE-001, PCB-KEEPOUT-001 | PCB-HOLE-001, PCB-KEEPOUT-001 |
+| MH1_moved_1mm | FAB-DRILL-001 | caught | blocked | FAB-DRILL-001, FAB-STALE-001, PCB-HOLE-001, PCB-KEEPOUT-001 | FAB-STALE-001, PCB-HOLE-001, PCB-KEEPOUT-001 |
 | cpl_body_centre_U2 | FAB-CPL-001 | caught | blocked | FAB-CPL-001 | - |
 | cpl_missing_K1 | FAB-CPL-001 | caught | blocked | FAB-CPL-001 | - |
 | bom_missing_C9 | FAB-BOM-001 | caught | blocked | FAB-BOM-001 | - |
@@ -37,7 +37,7 @@ Requirement-level run: the fixture is configured with the reference verification
 
 | Defect | Expected check | Deterministic checks | Fab gate | Requirements newly FAILED | Other checks that also fired | Reviewer Opus 5.5 | Reviewer Sonnet 5.5 |
 |---|---|---|---|---|---|---|---|
-| led_D2_reversed | CIR-POL-001 | caught | blocked | CIR-POL-001, PCB-CONN-001, PCB-DRC-001, PCB-PARITY-001 | CIR-LED-001, PCB-CONN-001, PCB-DRC-001, PCB-PARITY-001 | FAIL (MOD-VALUE-001) | FAIL (MOD-PINOUT-001) |
+| led_D2_reversed | CIR-POL-001 | caught | blocked | CIR-POL-001, PCB-CONN-001, PCB-DRC-001 | CIR-LED-001, PCB-CONN-001, PCB-DRC-001 | FAIL (MOD-VALUE-001) | FAIL (MOD-PINOUT-001) |
 | flyback_D1_reversed | CIR-POL-001 | caught | blocked | CIR-POL-001, PCB-CONN-001, PCB-DRC-001 | PCB-CONN-001, PCB-DRC-001 | FAIL (MOD-PINOUT-001) | FAIL (REV-EXTRA) |
 | regulator_U1_1V8 | CIR-REG-001 | caught | blocked | CIR-REG-001 | - | FAIL (MOD-POWER-001) | FAIL (MOD-POWER-001) |
 | led_resistor_R9_10R | CIR-LED-001 | caught | blocked | CIR-LED-001 | - | FAIL (MOD-VALUE-001) | FAIL (MOD-VALUE-001) |
