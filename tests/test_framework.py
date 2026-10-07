@@ -519,6 +519,29 @@ def test_drill_sets_are_checked_one_by_one_and_zips_extract_safely(tmp_path):
     assert fab.archives(tmp_path, {}) == [tmp_path / "out" / "order.zip"]
 
 
+def test_init_finds_outputs_outside_the_project_folder(tmp_path):
+    import zipfile
+    repo = tmp_path / "repo"
+    (repo / ".git").mkdir(parents=True)
+    kicad = repo / "hardware" / "kicad"
+    kicad.mkdir(parents=True)
+    (kicad / "x.kicad_pro").write_text("{}")
+    (repo / "hardware" / "fab" / "gerber").mkdir(parents=True)
+    (repo / "hardware" / "fab" / "gerber" / "x-F_Cu.gbr").write_text("%TF.FileFunction,Copper,L1,Top*%\n")
+    with zipfile.ZipFile(repo / "hardware" / "fab" / "x-gerbers.zip", "w") as z:
+        z.writestr("x-F_Cu.gbr", "%TF.FileFunction,Copper,L1,Top*%\n")
+    (repo / "hardware" / "bom").mkdir()
+    (repo / "hardware" / "bom" / "bom.csv").write_text("Designator\n")
+    (repo / "hardware" / "bom" / "cpl.csv").write_text("Designator\n")
+    (repo / "tools" / "test").mkdir(parents=True)
+    (repo / "tools" / "test" / "jlc_cpl_rotations.csv").write_text("x\n")
+    config.init_project(kicad)
+    params = config.load_yaml(kicad / config.DIRNAME / "requirements.yaml", {})["params"]
+    assert params["fab"] == {"profile": None, "dir": "../fab", "bom": "../bom/bom.csv", "cpl": "../bom/cpl.csv"}
+    g, _, b, c = fab.find_outputs(kicad, params, unzip_to=tmp_path / "unz")
+    assert len(g) == 2 and b == [kicad / "../bom/bom.csv"] and c == [kicad / "../bom/cpl.csv"]
+
+
 def _pro(tmp_path, min_clearance, classes, dru=None):
     pro = tmp_path / "x.kicad_pro"
     pro.write_text(json.dumps({"board": {"design_settings": {"rules": {"min_clearance": min_clearance}}},

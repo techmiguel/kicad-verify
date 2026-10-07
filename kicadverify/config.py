@@ -164,6 +164,23 @@ def _merge(a, b):
     return out
 
 
+def _write_detected_outputs(root, req_file):
+    """Pre-fills params.fab with fabrication outputs found outside the project folder."""
+    from .checks import fab
+    found = fab.detect_outside(root)
+    if not found:
+        return
+    lines = "".join(f"    {k}: {v}\n" for k, v in found.items())
+    text = req_file.read_text(encoding="utf-8")
+    marker = "    profile: null"
+    i = text.find(marker)
+    if i < 0:
+        return
+    j = text.index("\n", i) + 1
+    req_file.write_text(text[:j] + "    # found by `kicadverify init` outside the project folder: check them\n" + lines
+                        + text[j:], encoding="utf-8")
+
+
 def init_project(root, ci=None):
     root = Path(root)
     vd = root / DIRNAME
@@ -176,6 +193,8 @@ def init_project(root, ci=None):
             created.append(dst)
             if dst.name == "project.yaml":
                 dst.write_text(dst.read_text(encoding="utf-8").replace("{{name}}", root.name), encoding="utf-8")
+            if dst.name == "requirements.yaml":
+                _write_detected_outputs(root, dst)
     if ci == "github":
         repo = next((d for d in [root, *root.parents] if (d / ".git").exists()), root)
         wf = repo / ".github" / "workflows" / "hw-verify.yml"

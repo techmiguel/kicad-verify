@@ -6,6 +6,7 @@ drill diameters changed after the outputs were exported.
 """
 import csv
 import math
+import os
 import re
 import shutil
 import statistics
@@ -68,6 +69,45 @@ def _unzip(zf, dest):
             path.write_bytes(z.read(info))
             out.append(path)
     return out
+
+
+def detect_outside(root):
+    """Fabrication outputs kept outside the KiCad project folder but in the same repository (a common
+    layout: hardware/kicad/ next to hardware/fab/ and hardware/bom/). Returns params.fab entries
+    relative to `root` ({} when the project folder already holds outputs or nothing is found)."""
+    root = Path(root).resolve()
+    if any(find_outputs(root, {})) or archives(root, {}):
+        return {}
+    repo = next((d for d in [root, *root.parents] if (d / ".git").exists()), root.parent)
+    counts, boms, cpls = Counter(), [], []
+    for f in walk(repo, 6):
+        if root in f.parents:
+            continue
+        s, n = f.suffix.lower(), f.name.lower()
+        if _fab_member(f.name):
+            counts[f.parent] += 1
+        elif s == ".zip" and f.parent not in counts and archives(f.parent, {}):
+            counts[f.parent] += 1
+        elif s == ".csv" and "bom" in n:
+            boms.append(f)
+        elif s == ".csv" and any(k in n for k in ("cpl", "pos", "placement", "pnp")):
+            cpls.append(f)
+    out = {}
+    if counts:
+        best = max(counts, key=lambda d: (counts[d], -len(d.parts)))
+        # the folder holding the export(s): a gerber/ sub-folder's parent keeps the archives next to it
+        out["dir"] = os.path.relpath(best.parent if best.name.lower().startswith("gerber") else best, root)
+    base = (root / out["dir"]).resolve() if "dir" in out else None
+    for key, found in (("bom", boms), ("cpl", cpls)):
+        if base and any(base in f.parents for f in found):
+            continue  # found under the output folder anyway
+        # the closest to the project folder, when one is clearly closest (tools/test/jlc_cpl_rotations.csv
+        # elsewhere in the repository is not the placement file)
+        ranked = sorted(found, key=lambda f: len(Path(os.path.relpath(f, root)).parts))
+        if ranked and (len(ranked) == 1 or len(Path(os.path.relpath(ranked[0], root)).parts)
+                       < len(Path(os.path.relpath(ranked[1], root)).parts)):
+            out[key] = os.path.relpath(ranked[0], root)
+    return {k: v.replace(os.sep, "/") for k, v in out.items()}
 
 
 def find_outputs(root, params, unzip_to=None):
