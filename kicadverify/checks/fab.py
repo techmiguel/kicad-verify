@@ -125,7 +125,8 @@ def gerbers(pcb, board, files, label):
 
 # ---------------------------------------------------------------- drill
 def _drill_holes(files):
-    """[(diameter mm, x, y)] from Excellon files. Positions only when written in decimal format."""
+    """[(diameter mm, x, y)] of round holes from Excellon files. Positions only when written in decimal format.
+    Routed slots (`X..Y..G85X..Y..`, KiCad's default slot mode) are skipped, as on the PCB side."""
     holes, decimal = [], True
     for f in files:
         t = Path(f).read_text(encoding="utf-8", errors="ignore")
@@ -140,7 +141,7 @@ def _drill_holes(files):
                 cur = m.group(1)
                 continue
             c = re.match(r"X(-?[\d.]+)Y(-?[\d.]+)", line)
-            if cur and c:
+            if cur and c and "G85" not in line:
                 if "." not in c.group(1):
                     decimal = False
                 holes.append((round(tools.get(cur, 0), 2), float(c.group(1)) * k, float(c.group(2)) * k))

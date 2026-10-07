@@ -20,6 +20,10 @@ DEFAULT_OVERRIDES = {
     "SS-001": "warn",   # MPN coverage: JLCPCB flows use LCSC codes; FAB-BOM-001 checks supplier codes
     "DS-001": "warn",   # no local datasheets: the review is weaker, the board is not wrong
     "PM-002": "warn",   # courtyard close to the edge: often intentional (connectors, modules)
+    "KO-001": "warn",   # flags any via/track inside a rule area, ignoring what the area forbids; KiCad DRC
+                        # enforces rule areas (PCB-DRC-001). False FAILs on vias in areas that allow vias
+    "LR-001": "warn",   # misses per-cathode resistors of RGB LEDs; CIR-LED-001 computes the
+                        # current, and a missing resistor is a WARN there too (constant-current driver?)
 }
 SEV = {"fail": FAIL, "warn": WARN}
 
