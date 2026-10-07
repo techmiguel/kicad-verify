@@ -4,6 +4,7 @@ KICAD_CLI may point to a wrapper that runs kicad-cli from the official image (se
 written by `kicadverify init --ci github`)."""
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -82,6 +83,23 @@ def test_seeded_defect_blocks_the_gate(board, tmp_path, mutation, req):
     rep, _ = analyse(d, "full")
     assert _status(rep)[req] == "FAILED"
     assert not rep["verification"]["gates"]["fab"]["pass"]
+
+
+def test_stale_check_ignores_the_last_plot_settings(board, tmp_path):
+    """The board's stored plot settings are those of the last plot. After a PDF plot of the copper
+    layers only, re-plotting with them wrote PDF files under .gbr names and nothing was compared."""
+    from kicadverify.checks import board as board_mod, fab
+    d = fixtures.copy_of(board, tmp_path / "pdf_last")
+    pcb = d / "rele-esp12f.kicad_pcb"
+    t = pcb.read_text(encoding="utf-8")
+    t = t.replace("(outputformat 1)", "(outputformat 4)", 1)
+    t = re.sub(r"\(layerselection [^)]*\)", "(layerselection 0x00000000_00000000_00000000_00000001)", t, count=1)
+    pcb.write_text(t, encoding="utf-8")
+    b = board_mod.load(pcb)
+    files, _, _, _ = fab.find_outputs(d, {})
+    stale = {r.check_id: r for r in fab.gerbers(pcb, b, files, "t")}["FAB-STALE-001"]
+    assert stale.status == "PASS", stale.detail
+    assert stale.coverage["total"] >= 5 and not stale.coverage["unchecked"]
 
 
 def test_attestation_on_real_board(board):

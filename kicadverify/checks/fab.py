@@ -47,15 +47,29 @@ def find_outputs(root, params):
 
 
 # ---------------------------------------------------------------- Gerber
+# coordinates of the exported and the re-plotted set match within this distance: a 4.5 export
+# resolves 10 µm, a 4.6 one 1 µm; a design change moves copper by far more
+GERBER_TOL_MM = 0.006
+
+
 def _gerber_sets(files):
-    """{FileFunction: coordinates flashed/drawn with apertures that carry %TA.AperFunction}. Drill
-    marks and other function-less apertures depend on plot settings, not on the design."""
+    """{FileFunction: {(x, y) mm}} of what is flashed/drawn with apertures that carry
+    %TA.AperFunction, plus every flashed opening on mask and paste layers (KiCad gives those no
+    aperture attributes). Drill marks and other function-less apertures depend on plot settings, not
+    on the design; so do legend layers and the board profile plotted on every layer, which is ignored
+    outside the profile layer. Coordinates are converted to mm from the file's %FS format and %MO unit."""
     out = {}
     for f in files:
         t = Path(f).read_text(encoding="utf-8", errors="ignore")
         m = re.search(r"%TF\.FileFunction,([^*]+)\*%", t)
         if not m:
             continue
+        fs = re.search(r"%FS[LT]?A?X(\d)(\d)Y(\d)(\d)\*%", t)
+        xd, yd = (int(fs.group(2)), int(fs.group(4))) if fs else (6, 6)
+        k = 25.4 if "%MOIN*%" in t else 1.0
+        profile_layer = m.group(1).startswith("Profile")
+        # KiCad writes no aperture attributes on mask and paste layers: there every flashed opening counts
+        openings = m.group(1).startswith(("Soldermask", "Paste"))
         func = {}
         pending = None
         cur = None
@@ -67,15 +81,41 @@ def _gerber_sets(files):
                 pending = None
             elif line.startswith("%ADD"):
                 code = re.match(r"%ADD(\d+)", line).group(1)
-                func[code] = pending is not None
+                func[code] = pending is not None and (profile_layer or "AperFunction,Profile" not in pending)
             elif re.fullmatch(r"D(\d+)\*", line) and int(line[1:-1]) >= 10:
                 cur = line[1:-1]
             else:
                 c = re.match(r"X(-?\d+)Y(-?\d+)", line)
-                if c and cur and func.get(cur):
-                    coords.add(c.groups())
+                if c and cur and (func.get(cur) or (openings and line.rstrip().endswith("D03*"))):
+                    coords.add((int(c.group(1)) / 10 ** xd * k, int(c.group(2)) / 10 ** yd * k))
         out[m.group(1)] = coords
     return out
+
+
+def _unmatched(a, b, tol=GERBER_TOL_MM):
+    """Points of `a` with no point of `b` within `tol`."""
+    grid = {}
+    for x, y in b:
+        grid.setdefault((math.floor(x / tol), math.floor(y / tol)), []).append((x, y))
+    out = 0
+    for x, y in a:
+        i, j = math.floor(x / tol), math.floor(y / tol)
+        if not any(math.hypot(x - u, y - v) <= tol for di in (-1, 0, 1) for dj in (-1, 0, 1)
+                   for u, v in grid.get((i + di, j + dj), ())):
+            out += 1
+    return out
+
+
+def _plot_layer(func):
+    """KiCad layer name of a Gerber FileFunction ('Copper,L2,Inr' -> 'In1.Cu'), or None."""
+    parts = func.split(",")
+    side = {"Top": "F", "Bot": "B"}.get(parts[-1])
+    if parts[0] == "Copper" and len(parts) >= 3:
+        return f"{side}.Cu" if side else f"In{int(parts[1][1:]) - 1}.Cu"
+    names = {"Soldermask": "Mask", "Paste": "Paste", "Legend": "Silkscreen"}
+    if parts[0] in names and side:
+        return f"{side}.{names[parts[0]]}"
+    return "Edge.Cuts" if parts[0] == "Profile" else None
 
 
 def gerbers(pcb, board, files, label):
@@ -87,17 +127,23 @@ def gerbers(pcb, board, files, label):
     have = _gerber_sets(files)
     funcs = set(have)
     ncu = len(board["copper_layers"]) or 2
-    need = ["Copper,L1,Top", f"Copper,L{ncu},Bot", "Soldermask,Top", "Soldermask,Bot", "Profile,NP"]
+    copper = ["Copper,L1,Top"] + [f"Copper,L{i},Inr" for i in range(2, ncu)] + [f"Copper,L{ncu},Bot"]
+    need = [copper[0], copper[-1], "Soldermask,Top", "Soldermask,Bot", "Profile,NP"]
     missing = [n for n in need if n not in funcs]
     res.append(Result("FAB-GERBER-001", FAIL if missing else PASS,
                       f"{label}: {count(len(missing), 'mandatory Gerber layer')} missing",
                       violations=[{"key": vkey("gerb", n), "text": n} for n in missing],
                       evidence=list(files), coverage=coverage("mandatory layers", len(need))))
-    # freshness: re-plot with kicad-cli and compare functional geometry per layer
+    # freshness: re-plot with kicad-cli and compare functional geometry per layer. The layers and the
+    # format are given explicitly: the board's stored plot settings are those of the LAST plot, which
+    # may have been a PDF or a copper-only set (kicad-cli then writes PDF content under .gbr names)
+    layers = sorted({ly for ly in map(_plot_layer, set(have) | set(copper) | set(need)) if ly})
+    args = [config.KICAD_CLI, "pcb", "export", "gerbers", "-l", ",".join(layers), "-o", "{td}", str(pcb)]
+    if board.get("plot_aux_origin"):
+        args.insert(-1, "--use-drill-file-origin")
     try:
         with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as td:
-            subprocess.run([config.KICAD_CLI, "pcb", "export", "gerbers", "--board-plot-params",
-                            "-o", td, str(pcb)], capture_output=True, text=True, timeout=300)
+            subprocess.run([a.replace("{td}", td) for a in args], capture_output=True, text=True, timeout=300)
             fresh = _gerber_sets([p for p in Path(td).iterdir() if p.suffix != ".gbrjob"])
     except Exception as e:
         res.append(not_verifiable("FAB-STALE-001", f"{label}: could not re-plot Gerbers: {e}"))
@@ -105,10 +151,19 @@ def gerbers(pcb, board, files, label):
     if not fresh:
         res.append(not_verifiable("FAB-STALE-001", f"{label}: kicad-cli produced no Gerbers to compare with"))
         return res
+    # mask openings over non-plated holes are plotted by some KiCad versions and not by others: they
+    # are left out of the mask/paste comparison (the holes themselves are FAB-DRILL-001's)
+    ox, oy = board["aux_origin"] if board.get("plot_aux_origin") else (0.0, 0.0)
+    npth = {(p["x"] - ox, -(p["y"] - oy)) for fp in board["footprints"] for p in fp["pads"]
+            if p["type"] == "np_thru_hole"}
     diffs, gap = [], []
     for func, coords in fresh.items():
         if func in have:
-            extra, lost = len(coords - have[func]), len(have[func] - coords)
+            ref = have[func]
+            if func.startswith(("Soldermask", "Paste")) and npth:
+                coords = {c for c in coords if _unmatched([c], npth)}
+                ref = {c for c in ref if _unmatched([c], npth)}
+            extra, lost = _unmatched(coords, ref), _unmatched(ref, coords)
             if extra or lost:
                 diffs.append(f"{func}: {extra} items new on the PCB, {lost} items no longer on the PCB")
         elif coords:  # an empty layer (e.g. bottom paste with no bottom SMD) needs no export
@@ -116,7 +171,7 @@ def gerbers(pcb, board, files, label):
                         "text": f"{func}: plotted from the PCB, not in the exported set"})
     for func in [f for f in set(have) - set(fresh) if have[f]]:
         gap.append({"key": vkey("stalegap", func),
-                    "text": f"{func}: exported, not produced by the board plot settings"})
+                    "text": f"{func}: exported, not compared (no KiCad layer re-plots it)"})
     res.append(Result("FAB-STALE-001", FAIL if diffs else PASS,
                       f"{label}: {count(len(diffs), 'Gerber layer')} not matching the current PCB"
                       + (" (re-export them)" if diffs else ""),
@@ -128,6 +183,10 @@ def gerbers(pcb, board, files, label):
 
 
 # ---------------------------------------------------------------- drill
+# a hole matches when its centre is this close: Excellon in inches with 4 decimals resolves 0.00254 mm,
+# and the PCB stores positions to 1 µm, so a real hole is always well inside it
+DRILL_TOL_MM = 0.02
+
 def _drill_holes(files):
     """[(diameter mm, x, y)] of round holes from Excellon files. Positions only when written in decimal format.
     Routed slots (`X..Y..G85X..Y..`, KiCad's default slot mode) are skipped, as on the PCB side."""
@@ -170,13 +229,19 @@ def drills(board, files, label):
     note, gap = "", []
     if decimal and got and want:
         # absolute or auxiliary origin, Y flipped or not: keep the convention that fits best
-        gset = {(d, round(x, 2), round(y, 2)) for d, x, y in got}
+        grid = {}
+        for d, x, y in got:
+            grid.setdefault((d, math.floor(x / DRILL_TOL_MM), math.floor(y / DRILL_TOL_MM)), []).append((x, y))
+
+        def found(d, x, y):
+            i, j = math.floor(x / DRILL_TOL_MM), math.floor(y / DRILL_TOL_MM)
+            return any(math.hypot(x - gx, y - gy) <= DRILL_TOL_MM
+                       for di in (-1, 0, 1) for dj in (-1, 0, 1) for gx, gy in grid.get((d, i + di, j + dj), ()))
+
         best = None
         for ox, oy in {(0.0, 0.0), board["aux_origin"]}:
             for sy in (-1, 1):
-                miss = [(d, x, y) for d, x, y in want
-                        if not any((d, round(x - ox + ex, 2), round(sy * (y - oy) + ey, 2)) in gset
-                                   for ex in (-0.01, 0, 0.01) for ey in (-0.01, 0, 0.01))]
+                miss = [(d, x, y) for d, x, y in want if not found(d, x - ox, sy * (y - oy))]
                 if best is None or len(miss) < len(best):
                     best = miss
         diffs += [f"hole Ø{d} mm at ({x:.2f}, {y:.2f}) on the PCB has no match in the .drl files" for d, x, y in best]

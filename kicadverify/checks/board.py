@@ -132,6 +132,8 @@ def load(pcb):
             "edge_segments": edge_segments, "zone_fills": zone_fills,
             "aux_origin": _xy(setup, "aux_axis_origin") or (0.0, 0.0),
             "grid_origin": _xy(setup, "grid_origin") or (0.0, 0.0),
+            "plot_aux_origin": (sexp.child(sexp.child(setup, "pcbplotparams") or [], "useauxorigin")
+                                or ["", "no"])[1] in ("yes", "true"),
             "copper_layers": [ly[1] for ly in layers[1:] if isinstance(ly, list) and len(ly) > 2
                               and str(ly[1]).endswith(".Cu")],
             "thickness": sexp.num(th[1], 1.6) if th else 1.6,

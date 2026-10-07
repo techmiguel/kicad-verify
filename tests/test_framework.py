@@ -409,6 +409,48 @@ def test_dnp_alternative_placement_is_a_warning():
     assert r.status == WARN
 
 
+def test_drill_positions_match_within_tolerance(tmp_path):
+    f = tmp_path / "d.kicad_pcb"
+    f.write_text("""(kicad_pcb (general (thickness 1.6))
+ (layers (0 "F.Cu" signal) (2 "B.Cu" signal) (25 "Edge.Cuts" user))
+ (footprint "Conn:J" (layer "F.Cu") (at 87.005 50.292) (property "Reference" "J3")
+  (pad "1" thru_hole circle (at 0 0) (size 1.7 1.7) (drill 1.0) (layers "*.Cu") (net "A"))
+  (pad "2" thru_hole circle (at 10 0) (size 1.7 1.7) (drill 1.0) (layers "*.Cu") (net "A")))
+ (via (at 122.1013 70.905) (size 0.5) (drill 0.3) (net "B")))""", encoding="utf-8")
+    drl = tmp_path / "x-PTH.drl"
+    # KiCad 8 inch output, 4 decimals: J3.1 and the via sit on half-steps of 0.01 mm once converted
+    # (87.0052, 70.9041), which a rounded lookup missed; J3.2 was moved 0.05 mm after the export
+    drl.write_text("M48\nINCH\nT1C0.0118\nT2C0.0394\n%\nG90\nT1\nX4.8071Y-2.7916\nT2\nX3.4254Y-1.98\n"
+                   "X3.8211Y-1.98\nM30\n", encoding="utf-8")
+    r = fab.drills(board.load(f), [drl], "t")[0]
+    assert [v["text"] for v in r.violations] == [
+        "hole Ø1.0 mm at (97.00, 50.29) on the PCB has no match in the .drl files"]
+
+
+def _gbr(path, func, body, fs="%FSLAX46Y46*%", unit="%MOMM*%"):
+    path.write_text(f"%TF.FileFunction,{func}*%\n{fs}\n{unit}\n" + body + "M02*\n", encoding="utf-8")
+    return path
+
+
+def test_gerber_sets_normalise_format_and_skip_plot_artefacts(tmp_path):
+    pad = "%TA.AperFunction,SMDPad,CuDef*%\n%ADD10R,1X1*%\n%TD*%\n"
+    prof = "%TA.AperFunction,Profile*%\n%ADD11C,0.1*%\n%TD*%\n"
+    a = _gbr(tmp_path / "a.gbr", "Copper,L1,Top",
+             pad + prof + "D10*\nX12345600Y-5000000D03*\nD11*\nX0Y0D02*\nX1000000Y0D01*\n")
+    # the same pad written by another exporter: inches, 4.5 format (12.3456 mm = 0.48605 in)
+    b = _gbr(tmp_path / "b.gbr", "Copper,L1,Top", pad + "D10*\nX48605Y-19685D03*\n", "%FSLAX45Y45*%", "%MOIN*%")
+    mask = _gbr(tmp_path / "m.gbr", "Soldermask,Top", "%ADD10R,1X1*%\nD10*\nX12345600Y-5000000D03*\n")
+    sa, sb, sm = (fab._gerber_sets([f]) for f in (a, b, mask))
+    assert sa["Copper,L1,Top"] == {(12.3456, -5.0)}  # the profile drawn on the copper layer is ignored
+    assert fab._unmatched(sa["Copper,L1,Top"], sb["Copper,L1,Top"]) == 0
+    assert fab._unmatched({(12.4, -5.0)}, sb["Copper,L1,Top"]) == 1
+    assert sm["Soldermask,Top"] == {(12.3456, -5.0)}  # mask openings carry no aperture attributes
+    funcs = ("Copper,L1,Top", "Copper,L2,Inr", "Copper,L4,Bot", "Soldermask,Bot", "Paste,Top", "Legend,Top",
+             "Profile,NP", "Other,User")
+    assert [fab._plot_layer(f) for f in funcs] == [
+        "F.Cu", "In1.Cu", "B.Cu", "B.Mask", "F.Paste", "F.Silkscreen", "Edge.Cuts", None]
+
+
 def _pro(tmp_path, min_clearance, classes, dru=None):
     pro = tmp_path / "x.kicad_pro"
     pro.write_text(json.dumps({"board": {"design_settings": {"rules": {"min_clearance": min_clearance}}},
