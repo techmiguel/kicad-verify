@@ -35,9 +35,9 @@ def test_parity_compares_values():
           "pin_net": {("R9", "1"): "A", ("R9", "2"): "B", ("R1", "1"): "A", ("R1", "2"): "C"}}
 
     def board(r9, r1):
-        fp = lambda ref, val, n2: {"ref": ref, "name": "R:R_0603", "value": val, "attr": [],
-                                   "pads": [{"number": "1", "net": "A", "type": "smd"},
-                                            {"number": "2", "net": n2, "type": "smd"}]}
+        def fp(ref, val, n2):
+            return {"ref": ref, "name": "R:R_0603", "value": val, "attr": [],
+                    "pads": [{"number": "1", "net": "A", "type": "smd"}, {"number": "2", "net": n2, "type": "smd"}]}
         return {"footprints": [fp("R9", r9, "B"), fp("R1", r1, "C")]}
 
     ok = parity.run(board("220Ω", "10K"), nl, "t")[0]
@@ -113,7 +113,8 @@ def _rgb_board(r_value="1k"):
                                                             for i in range(1, 5)}}}
     nets = {"+3V3": [{"ref": "D1", "pin": "4", "name": "A", "type": "passive"},
                      {"ref": "R9", "pin": "1", **pas}],
-            "/EN": [{"ref": "R9", "pin": "2", **pas}, {"ref": "U1", "pin": "4", "name": "IO4", "type": "bidirectional"}]}
+            "/EN": [{"ref": "R9", "pin": "2", **pas},
+                    {"ref": "U1", "pin": "4", "name": "IO4", "type": "bidirectional"}]}
     for i, (col, ref) in enumerate((("R", "R10"), ("G", "R11"), ("B", "R12")), start=1):
         comps[ref] = {"value": r_value, "part": "R", "pins": {"1": dict(pas), "2": dict(pas)}}
         nets[f"/LED_{col}K"] = [{"ref": "D1", "pin": str(i), "name": f"{col}K", "type": "passive"},

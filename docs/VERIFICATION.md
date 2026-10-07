@@ -108,6 +108,27 @@ of the capability page and should be checked against the fab's current page. Con
 overriding it in the project with the source you checked:
 `profile: {base: jlcpcb-1-2-layer-standard, source: {confirmed: true, by: "...", date: "..."}}`.
 
+Another fab or another layer count is a profile in the project: start from the closest built-in one
+with `base` and override the limits that differ, with the source they come from. For example, a
+four-layer board:
+
+```yaml
+params:
+  fab:
+    profile:
+      base: jlcpcb-1-2-layer-standard
+      name: jlcpcb-4-layer
+      source: {kind: fab_capability, ref: "JLCPCB capabilities, multilayer", confirmed: false}
+      layers_max: 4
+      min_track_mm: 0.09
+      min_spacing_mm: 0.09
+      min_via_drill_mm: 0.2
+      min_via_diameter_mm: 0.45
+```
+
+Limits inherited from the base keep its values, so check the ones that matter for your board (for
+example `min_hole_to_hole_mm`).
+
 ## Isolation barriers
 
 A DRC is only as good as the clearance rules someone wrote into the board, and boards that carry
@@ -205,4 +226,6 @@ not part of the subject.
 `kicadverify init --ci github` writes `.github/workflows/hw-verify.yml`: kicad-cli from the official
 KiCad image, `kicadverify verify --gate fab`, the Markdown report in the job summary, a JUnit file
 (one test case per requirement: FAILED → failure, NOT_VERIFIABLE/NOT_RUN → skipped with the reason)
-and the raw evidence as an artifact.
+and the raw evidence as an artifact. The workflow installs the kicad-verify version that wrote it
+(`@v<version>`): a new version can change verdicts or invalidate sign-offs, so upgrading is a
+deliberate change to the workflow, not something that happens on the next push.

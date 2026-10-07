@@ -55,6 +55,13 @@ class Result:
                    d.get("coverage"), d.get("outcome"), d.get("waived"))
 
 
+def count(n, noun):
+    """'1 finding', '3 findings', '2 mismatches'."""
+    if n == 1:
+        return f"1 {noun}"
+    return f"{n} {noun}{'es' if noun.endswith(('ch', 'sh', 's', 'x')) else 's'}"
+
+
 def coverage(scope, total, unchecked=None, checked=None):
     """Scope record for a check. `unchecked` items are in scope but were not verified (with the
     reason in their text); they carry keys so a person can waive them after checking by hand."""

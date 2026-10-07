@@ -13,7 +13,8 @@ def main():
     rows = [r for r in data["rows"] if r.get("applied")]
     groups = {"layout": "Layout and footprints", "fab": "Fabrication outputs", "circuit": "Circuit"}
     lines = ["# Seeded-error results", "",
-             f"Fixture: [smartRele](https://github.com/techmiguel/smartRele) at commit `{data['fixture'].split('@')[1]}`, "
+             "Fixture: [smartRele](https://github.com/techmiguel/smartRele) "
+             f"at commit `{data['fixture'].split('@')[1]}`, "
              "a two-layer KiCad 10 board that was fabricated and assembled. Each defect is injected into a fresh "
              "copy; the unmodified copy is the baseline. Reproduce with `python tests/seeded/run_seeded.py` "
              "(add `--reviewer opus sonnet --only circuit` for the reviewer columns).", "",
@@ -24,21 +25,25 @@ def main():
     blocked = sum(1 for r in rows if r.get("fab_gate_blocked"))
     lines += [f"**Deterministic checks: {det}/{len(rows)}** defects caught. "
               f"**Fab gate: {blocked}/{len(rows)}** defects block it "
-              "(the two that do not are judgement calls with no rule: they are the reviewer's job, at the release gate).",
+              "(the two that do not are judgement calls with no rule: they are the reviewer's job, "
+              "at the release gate).",
               "",
               "Requirement-level run: the fixture is configured with the reference verification set in "
               "[tests/reference/rele](../tests/reference/rele) (fab profile, pins from the datasheets, mounting holes, "
               "approved footprints, waivers with reasons, three project assertions). On the unmodified board the fab "
-              f"gate {'passes' if data.get('baseline_fab_gate') else 'does NOT pass'}; requirements FAILED at baseline: "
+              f"gate {'passes' if data.get('baseline_fab_gate') else 'does NOT pass'}; "
+              "requirements FAILED at baseline: "
               f"{', '.join(data.get('baseline_failed') or []) or 'none'} (release gate only). "
-              "\"Requirements newly FAILED\" lists the requirements whose verdict changed to FAILED with the defect.", ""]
+              "\"Requirements newly FAILED\" lists the requirements whose verdict changed to FAILED "
+              "with the defect.", ""]
     have_rev = any(f"reviewer_{m}" in r for r in rows for m in MODELS)
     for g, title in groups.items():
         gr = [r for r in rows if r["group"] == g]
         if not gr:
             continue
         lines += [f"## {title}", ""]
-        head = "| Defect | Expected check | Deterministic checks | Fab gate | Requirements newly FAILED | Other checks that also fired |"
+        head = ("| Defect | Expected check | Deterministic checks | Fab gate | Requirements newly FAILED "
+                "| Other checks that also fired |")
         sep = "|---|---|---|---|---|---|"
         if have_rev and g == "circuit":
             head += "".join(f" Reviewer {NAMES[m]} |" for m in MODELS)

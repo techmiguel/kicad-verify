@@ -52,14 +52,15 @@ def fp_move(ref, dx, dy):
 def fp_swap_pad_nets(ref, a, b):
     def fn(blk):
         def net_of(pad):
-            m = re.search(r'\(pad "%s".*?\(net "([^"]*)"\)' % pad, blk, re.S)
-            return m
+            return re.search(rf'\(pad "{pad}".*?\(net "([^"]*)"\)', blk, re.S)
         ma, mb = net_of(a), net_of(b)
         if not ma or not mb:
             return None
         na, nb = ma.group(1), mb.group(1)
-        out = re.sub(r'(\(pad "%s".*?\(net ")([^"]*)("\))' % a, lambda m: m.group(1) + "@@A" + m.group(3), blk, count=1, flags=re.S)
-        out = re.sub(r'(\(pad "%s".*?\(net ")([^"]*)("\))' % b, lambda m: m.group(1) + na + m.group(3), out, count=1, flags=re.S)
+        def set_net(text, pad, net):
+            return re.sub(rf'(\(pad "{pad}".*?\(net ")([^"]*)("\))', lambda m: m.group(1) + net + m.group(3), text,
+                          count=1, flags=re.S)
+        out = set_net(set_net(blk, a, "@@A"), b, na)
         return out.replace('(net "@@A")', f'(net "{nb}")', 1)
     return lambda t: fp_edit(t, ref, fn)
 
@@ -108,16 +109,16 @@ def csv_edit(fname, fn):
 
 
 def cpl_offset(lines):
-    for i, l in enumerate(lines):
-        if l.startswith("U2,"):
-            p = l.split(",")
+    for i, line in enumerate(lines):
+        if line.startswith("U2,"):
+            p = line.split(",")
             p[1] = f"{float(p[1].replace('mm', '')) + 3.8:.3f}mm"
             lines[i] = ",".join(p)
             return lines
 
 
 def drop_line(prefix):
-    return lambda lines: [l for l in lines if not l.startswith(prefix) and f",{prefix[:-1]}," not in l]
+    return lambda lines: [ln for ln in lines if not ln.startswith(prefix) and f",{prefix[:-1]}," not in ln]
 
 
 def add_segment(t):
@@ -173,7 +174,8 @@ MUTATIONS = {
     # the same track on a board whose .kicad_dru has no mains rule (the usual case): DRC is clean
     "gnd_near_mains_no_dru_rule": ({PCB: gnd_near_mains, "rele-esp12f.kicad_dru": lambda t: "(version 1)\n"},
                                    "ISO-SEP-001", "layout"),
-    "bom_missing_C9": (csv_edit("BOM_JLCPCB.csv", lambda ls: [l for l in ls if ",C9," not in l]), "FAB-BOM-001", "fab"),
+    "bom_missing_C9": (csv_edit("BOM_JLCPCB.csv", lambda ls: [ln for ln in ls if ",C9," not in ln]),
+                       "FAB-BOM-001", "fab"),
     # circuit (schematic and PCB updated consistently; parity cannot see them)
     "led_D2_reversed": (sch_rotate("D2"), "CIR-POL-001", "circuit"),
     "flyback_D1_reversed": (sch_rotate("D1"), "CIR-POL-001", "circuit"),
@@ -329,7 +331,8 @@ def main():
                    "fab_gate_blocked": not rep["verification"]["gates"]["fab"]["pass"]}
             for m in a.reviewer:
                 res, rr, _ = do_review(d, m, rep=rep, ctx=ctx)
-                (rev_dir / f"{name}_{m}.json").write_text(json.dumps(rr, indent=1, ensure_ascii=False), encoding="utf-8")
+                (rev_dir / f"{name}_{m}.json").write_text(json.dumps(rr, indent=1, ensure_ascii=False),
+                                                          encoding="utf-8")
                 rf = reviewer_hit(name, review_texts(res), rbase[m])
                 row[f"reviewer_{m}"] = rf
                 row[f"reviewer_{m}_cost"] = (rr or {}).get("reviewer", {}).get("cost_usd")

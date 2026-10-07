@@ -98,9 +98,10 @@ def build_bundle(root, proj, designs, report, kh_summaries):
             if r.startswith("#"):
                 continue
             all_comps[r] = c
-            comps.append({"ref": r, "value": c["value"], "footprint": c["footprint"], "symbol": f"{c['lib']}:{c['part']}",
-                          "datasheet": c["datasheet"],
-                          "fields": {k: v for k, v in c["fields"].items() if k not in ("Footprint", "Datasheet") and v}})
+            comps.append({"ref": r, "value": c["value"], "footprint": c["footprint"],
+                          "symbol": f"{c['lib']}:{c['part']}", "datasheet": c["datasheet"],
+                          "fields": {k: v for k, v in c["fields"].items()
+                                     if k not in ("Footprint", "Datasheet") and v}})
         pin_tables = {r: [{"pin": n, "name": p["name"], "type": p["type"], "net": nl["pin_net"].get((r, n))}
                           for n, p in sorted(c["pins"].items(), key=lambda kv: (len(kv[0]), kv[0]))]
                       for r, c in nl["components"].items() if not r.startswith("#") and len(c["pins"]) >= 3}
@@ -282,16 +283,16 @@ def run_reviewer(root, bdir, model, timeout_s=1800):
     meta = {"model": model, "duration_s": round(time.time() - t0, 1), "returncode": p.returncode}
     try:
         out = json.loads(p.stdout)
-    except json.JSONDecodeError:
-        raise RuntimeError(f"reviewer output is not JSON: {p.stdout[:400]} {p.stderr[:400]}")
+    except json.JSONDecodeError as e:
+        raise RuntimeError(f"reviewer output is not JSON: {p.stdout[:400]} {p.stderr[:400]}") from e
     meta.update({"cost_usd": out.get("total_cost_usd"), "num_turns": out.get("num_turns"),
                  "is_error": out.get("is_error"), "models": list((out.get("modelUsage") or {}).keys())})
     raw = out.get("structured_output")
     if raw is None:
         try:
             raw = json.loads(out.get("result") or "")
-        except Exception:
-            raise RuntimeError(f"reviewer returned no structured output: {str(out.get('result'))[:400]}")
+        except Exception as e:
+            raise RuntimeError(f"reviewer returned no structured output: {str(out.get('result'))[:400]}") from e
     return raw, meta
 
 
@@ -317,7 +318,8 @@ def write_report(proj, model_meta, detail, extras, results, review_key=None, pro
     rep = {"tool": "kicad-verify", "kind": "review", "time": datetime.now(timezone.utc).isoformat(timespec="seconds"),
            "design_hash": config.design_hash(proj["root"]), "review_key": review_key, "provenance": prov,
            "reviewer": model_meta,
-           "overall": FAIL if any(r.status == FAIL for r in results) else WARN if any(r.status == WARN for r in results) else PASS,
+           "overall": (FAIL if any(r.status == FAIL for r in results)
+                       else WARN if any(r.status == WARN for r in results) else PASS),
            "requirements": detail, "extra_findings": extras, "results": [r.as_dict() for r in results]}
     f = proj["dir"] / "reports" / "review_report.json"
     f.parent.mkdir(parents=True, exist_ok=True)

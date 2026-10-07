@@ -17,7 +17,7 @@ import re
 from pathlib import Path
 
 from .. import config
-from ..report import FAIL, PASS, Result, coverage, not_verifiable
+from ..report import FAIL, PASS, Result, count, coverage, not_verifiable
 from ..waivers import vkey
 
 PROFILE_FILE = config.DATA / "fab_profiles.yaml"
@@ -112,7 +112,7 @@ def rules(pro, label, prof):
     head = (f"{label}: board minimum clearance {board_min} mm < fab {spacing} mm"
             if board_min is not None else f"{label}: board minimum clearance not set")
     if bad:
-        return [Result(cid, FAIL, f"{head}; {len(bad)} rules let DRC accept spacing the fab cannot make",
+        return [Result(cid, FAIL, f"{head}; {count(len(bad), 'rule')} letting DRC accept spacing the fab cannot make",
                        evidence=evidence, coverage=coverage("clearance rules", n),
                        violations=[{"key": vkey("rules", b.split(':')[0]), "text": b} for b in bad])]
     return [Result(cid, PASS, f"{head}, but every net-class and custom clearance is >= {spacing} mm",
@@ -233,7 +233,7 @@ def edge_distance(shape, edges, index=None, margin=None):
 
 
 def _on_copper(p):
-    return any(l.endswith(".Cu") for l in p.get("layers") or [])
+    return any(ly.endswith(".Cu") for ly in p.get("layers") or [])
 
 
 # ------------------------------------------------------------------ FAB-DFM-001
@@ -354,7 +354,7 @@ def geometry(board, label, prof, pcb=None):
             for name, d in worst.items():
                 bad("edge", name, f"{name}: {d:.3f} mm from the board edge < {v} mm")
     st = FAIL if viol else PASS
-    return [Result(cid, st, f"{label}: {len(viol)} geometry items outside fab profile {prof['name']}",
+    return [Result(cid, st, f"{label}: {count(len(viol), 'geometry item')} outside fab profile {prof['name']}",
                    violations=viol, evidence=[pcb] if pcb else [],
                    coverage=coverage("measured items", measured + len(unchecked), unchecked,
                                      checked=measured))]

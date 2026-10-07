@@ -1,2 +1,3 @@
-# Written by `kicadverify signoff <ID> --by <name>`. A sign-off is valid only for the design hash it records.
+# Written by `kicadverify signoff <ID> --by <name>`. A sign-off holds only for the design hash and the policy
+# digest it records: a design or policy change sends the requirement back to NOT_RUN.
 signoffs: []

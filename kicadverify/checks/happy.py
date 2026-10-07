@@ -12,7 +12,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from ..report import FAIL, NOT_VERIFIABLE, PASS, WARN, Result
+from ..report import FAIL, NOT_VERIFIABLE, PASS, WARN, Result, count
 
 PINNED = "v2.3.1"
 REPO = "https://github.com/aklofas/kicad-happy.git"
@@ -95,7 +95,7 @@ def to_results(data, label, params):
     cfg = params.get("kicad_happy") or {}
     overrides = {**DEFAULT_OVERRIDES, **(cfg.get("severity") or {})}
     groups = {}
-    for source, f in findings(data):
+    for _source, f in findings(data):
         rule = f.get("rule_id") or f.get("detector") or "UNKNOWN"
         sev = (f.get("severity") or "info").lower()
         mapped = overrides.get(rule) or {"error": "fail", "warning": "warn"}.get(sev, "info")
@@ -105,9 +105,12 @@ def to_results(data, label, params):
         if SEV[mapped] == FAIL:
             g["status"] = FAIL
         refs = ", ".join((f.get("components") or [])[:6])
-        text = (f.get("summary") or f.get("description") or rule) + (f" [{refs}]" if refs and refs not in (f.get("summary") or "") else "")
-        g["items"].append({"key": (f.get("finding_id") or f"{rule}:{text}")[-60:], "text": f"{text} ({f.get('confidence', '?')})"})
-    res = [Result(f"KH-{rule}", g["status"], f"{label}: kicad-happy {rule}: {len(g['items'])} findings",
+        text = f.get("summary") or f.get("description") or rule
+        if refs and refs not in (f.get("summary") or ""):
+            text += f" [{refs}]"
+        g["items"].append({"key": (f.get("finding_id") or f"{rule}:{text}")[-60:],
+                           "text": f"{text} ({f.get('confidence', '?')})"})
+    res = [Result(f"KH-{rule}", g["status"], f"{label}: kicad-happy {rule}: {count(len(g['items']), 'finding')}",
                   violations=g["items"]) for rule, g in sorted(groups.items())]
     n = sum(1 for _ in findings(data))
     ran = [k for k in ("schematic", "pcb", "cross", "gerbers") if data.get(k)]
@@ -123,7 +126,7 @@ def summary_for_review(data, limit=120):
     if not data:
         return None
     out = {"version": data.get("_version"), "findings": []}
-    for source, f in findings(data):
+    for _source, f in findings(data):
         out["findings"].append({k: f.get(k) for k in ("finding_id", "rule_id", "severity", "confidence",
                                                          "summary", "components", "nets", "recommendation")})
     out["findings"] = out["findings"][:limit]

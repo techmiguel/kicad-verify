@@ -5,7 +5,7 @@ as stale, so accepted deviations cannot outlive the finding they were written fo
 import hashlib
 from datetime import date
 
-from .report import FAIL, PASS, WARN, Result
+from .report import FAIL, PASS, WARN, Result, count
 
 
 def vkey(*parts):
@@ -39,7 +39,8 @@ def apply(results, waivers, today=None):
                 r.violations = keep
                 if not keep and r.status in (FAIL, WARN):
                     r.status = PASS
-                    r.detail += f" (all {len(r.waived)} findings waived)"
+                    n = len(r.waived)
+                    r.detail += " (the finding is waived)" if n == 1 else f" (all {n} findings waived)"
             cov = r.coverage
             if cov and cov.get("unchecked"):
                 gap = [u for u in cov["unchecked"] if u["key"] == w["key"]]
@@ -53,7 +54,7 @@ def apply(results, waivers, today=None):
     if notes:
         results.append(Result("WAIVERS", WARN, "; ".join(notes)))
     if stale:
-        results.append(Result("WAIVERS", WARN, f"{len(stale)} waivers match no current finding (stale): "
+        results.append(Result("WAIVERS", WARN, f"{count(len(stale), 'waiver')} matching no current finding (stale): "
                               + ", ".join(stale[:10]),
                               violations=[{"key": f"stale-{i}", "text": s} for i, s in enumerate(stale)]))
     return results

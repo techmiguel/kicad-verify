@@ -18,7 +18,7 @@ import json
 from functools import lru_cache
 
 from . import config, evidence
-from .report import (FAIL, FAILED, NOT_RUN, NOT_VERIFIABLE, PASS, SKIP, VERDICTS, VERIFIED, WARN)
+from .report import (FAIL, FAILED, NOT_RUN, NOT_VERIFIABLE, PASS, SKIP, VERDICTS, VERIFIED, WARN, count)
 
 METHODS = {"auto": "auto", "analysis": "auto", "check": "auto",
            "model": "model", "review": "model",
@@ -242,10 +242,10 @@ def _orphan_verdict(req, orphan, root, limit):
     if bad:
         return {**base, "status": FAILED, "severity": "error" if any(r.status == FAIL for r in bad) else "warning",
                 "evidence": ev, "findings": findings[:limit],
-                "reason": f"{len(bad)} verifier results outside every requirement report defects: "
+                "reason": f"{count(len(bad), 'verifier result')} outside every requirement reporting defects: "
                           + ", ".join(sorted({r.check_id for r in bad}))}
     return {**base, "status": VERIFIED, "severity": None, "evidence": ev, "findings": [],
-            "reason": f"{len(orphan)} untraced verifier results, none failing"}
+            "reason": f"{count(len(orphan), 'untraced verifier result')}, none failing"}
 
 
 # ------------------------------------------------------------------ gates and summary

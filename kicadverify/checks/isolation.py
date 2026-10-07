@@ -30,7 +30,7 @@ import math
 import re
 from pathlib import Path
 
-from ..report import FAIL, PASS, Result, coverage, not_verifiable
+from ..report import FAIL, PASS, Result, count, coverage, not_verifiable
 from ..waivers import vkey
 from .dfm import pad_shape, seg_seg
 
@@ -97,8 +97,8 @@ def copper(board):
         for p in fp["pads"]:
             if p["type"] == "np_thru_hole":
                 continue
-            layers = [l for l in p["layers"] if l.endswith(".Cu")]
-            if any(l.startswith("*") for l in layers):
+            layers = [ly for ly in p["layers"] if ly.endswith(".Cu")]
+            if any(ly.startswith("*") for ly in layers):
                 layers = cu
             shape = pad_shape(p)
             if shape[0] == "capsule":
@@ -117,7 +117,8 @@ def copper(board):
 
 
 def _cells(x0, y0, x1, y1):
-    return [(i, j) for i in range(int(x0 // CELL), int(x1 // CELL) + 1) for j in range(int(y0 // CELL), int(y1 // CELL) + 1)]
+    return [(i, j) for i in range(int(x0 // CELL), int(x1 // CELL) + 1)
+            for j in range(int(y0 // CELL), int(y1 // CELL) + 1)]
 
 
 def min_distance(feats_a, feats_b, limit):
@@ -224,7 +225,7 @@ def run(board, pro, label, params, pcb=None):
                 bad.append({"key": vkey("iso", name, layer),
                             "text": f"{where}: {d:.2f} mm between {la} and {lb} < required {need} mm"})
     return [Result(cid, FAIL if bad else PASS,
-                   f"{label}: {len(bad)} barrier/layer pairs below the required separation, {len(ok)} met",
+                   f"{label}: {count(len(bad), 'barrier/layer pair')} below the required separation, {len(ok)} met",
                    violations=bad, evidence=[pcb, pro] if pcb else [],
                    coverage=coverage("barrier/layer pairs", n + len(gaps), gaps, checked=n))]
 
@@ -235,7 +236,7 @@ def apply_sources(reqs, params):
     if not barriers:
         return
     srcs = [b.get("source") or {} for b in barriers]
-    refs = [f"{b.get('name', 'barrier')}: {s.get('ref', 'NO SOURCE')}" for b, s in zip(barriers, srcs)]
+    refs = [f"{b.get('name', 'barrier')}: {s.get('ref', 'NO SOURCE')}" for b, s in zip(barriers, srcs, strict=True)]
     confirmed = all(s.get("ref") and s.get("confirmed", True) is not False for s in srcs)
     kinds = sorted({s.get("kind") for s in srcs if s.get("kind")})
     for r in reqs:

@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+- `kicadverify --version`; every command has a description in `--help`, listed in workflow order.
+- A clear notice when `kicad-cli` is not found, instead of one `[Errno 2]` per requirement.
+- Report summaries use singular and plural correctly ("1 polarity error", "3 DRC violations").
+- CIR-LED-001 reports a reverse-biased LED as not lit instead of a negative current.
+- Code checked with ruff in CI; tests also run on Python 3.13.
+- README rewritten around a quick start with real output; docs/VERIFICATION.md shows a project fab profile for other fabs and layer counts.
+
 ## 0.5.0 — 2026-10-07
 First tagged release: install a fixed version with `pip install "git+https://github.com/techmiguel/kicad-verify@v0.5.0"`.
 - `init --ci github` pins the workflow to the kicad-verify version that wrote it (`@v<version>`) instead of the development branch.

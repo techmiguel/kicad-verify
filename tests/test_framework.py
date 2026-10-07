@@ -1,4 +1,5 @@
 """Unit tests of the requirements framework (no KiCad, no network)."""
+import argparse
 import json
 import xml.etree.ElementTree as ET
 from pathlib import Path
@@ -59,7 +60,8 @@ def test_partial_coverage_is_not_verified():
     assert v["A"]["status"] == NOT_VERIFIABLE and "3/4" in v["A"]["reason"]
     # a person checks D5 by hand and waives the gap: VERIFIED, with the deviation on record
     r = Result("A", PASS, "ok", coverage=coverage("parts", 4, list(gap)))
-    waivers.apply([r], [{"check": "A", "key": "g1", "reason": "measured on the bench", "date": "2026-01-01", "by": "ana"}])
+    waivers.apply([r], [{"check": "A", "key": "g1", "reason": "measured on the bench", "date": "2026-01-01",
+                         "by": "ana"}])
     v = verdict([req("A")], [r])
     assert v["A"]["status"] == VERIFIED and v["A"]["coverage"]["checked"] == 4
     assert v["A"]["deviations"][0]["kind"] == "coverage" and v["A"]["deviations"][0]["by"] == "ana"
@@ -142,7 +144,8 @@ def test_waivers_keep_record_and_detect_stale():
     out = waivers.apply([r], [{"check": "X", "key": "a", "reason": "ok", "date": "2026-01-01"},
                               {"check": "X", "key": "zz", "reason": "old", "date": "2026-01-01"},
                               {"check": "NOT-RUN", "key": "q", "reason": "r", "date": "2026-01-01"},
-                              {"check": "X", "key": "b", "reason": "exp", "date": "2025-01-01", "expires": "2025-06-01"}])
+                              {"check": "X", "key": "b", "reason": "exp", "date": "2025-01-01",
+                               "expires": "2025-06-01"}])
     assert r.status == PASS and r.waived[0]["reason"] == "ok"
     notes = " ".join(x.detail for x in out if x.check_id == "WAIVERS")
     assert "X zz" in notes and "NOT-RUN" not in notes and "expired" in notes
@@ -167,8 +170,10 @@ def test_judge_maps_to_verdicts(tmp_path):
     (tmp_path / "d.json").write_text("U1 VO +3V3 regulator output", encoding="utf-8")
     reqs = [{"id": i} for i in "ABCDE"]
     raw = {"verdicts": [
-        {"id": "A", "verdict": "PASS", "summary": "ok", "evidence": [{"file": "d.json", "quote": "U1 VO +3V3 regulator"}]},
-        {"id": "B", "verdict": "PASS", "summary": "ok", "evidence": [{"file": "d.json", "quote": "invented quote here"}]},
+        {"id": "A", "verdict": "PASS", "summary": "ok",
+         "evidence": [{"file": "d.json", "quote": "U1 VO +3V3 regulator"}]},
+        {"id": "B", "verdict": "PASS", "summary": "ok",
+         "evidence": [{"file": "d.json", "quote": "invented quote here"}]},
         {"id": "C", "verdict": "FAIL", "summary": "bad", "evidence": []},
         {"id": "D", "verdict": "FAIL", "summary": "bad", "evidence": [{"file": "d.json", "quote": "regulator output"}]},
     ], "extra_findings": []}
@@ -339,6 +344,15 @@ def test_design_hash_includes_rules(tmp_path):
     h2 = config.design_hash(tmp_path)
     (tmp_path / "b.kicad_prl").write_text("ui state")
     assert h1 != h2 == config.design_hash(tmp_path)
+
+
+def test_cli_version_and_help(capsys):
+    with pytest.raises(SystemExit):
+        cli.main(["--version"])
+    assert capsys.readouterr().out.strip() == f"kicad-verify {kicadverify.__version__}"
+    sub = next(a for a in cli.build_parser()._actions if isinstance(a, argparse._SubParsersAction))
+    assert len(sub._choices_actions) == len(sub.choices) >= 18
+    assert all(a.help for a in sub._choices_actions), [a.dest for a in sub._choices_actions if not a.help]
 
 
 def test_init_ci_workflow(tmp_path):
@@ -584,5 +598,6 @@ def test_isolation_declared_or_not_verifiable(iso_board):
     assert "selects no net" in r.coverage["unchecked"][0]["text"]
     reqs = [req("ISO-SEP-001")]
     isolation.apply_sources(reqs, {"isolation": {"barriers": [
-        {"name": "m", "required_mm": 4, "source": {"kind": "regulatory", "ref": "IEC 62368-1 T.x", "confirmed": False}}]}})
+        {"name": "m", "required_mm": 4,
+         "source": {"kind": "regulatory", "ref": "IEC 62368-1 T.x", "confirmed": False}}]}})
     assert reqs[0]["source"]["confirmed"] is False and "IEC 62368-1" in reqs[0]["source"]["ref"]
