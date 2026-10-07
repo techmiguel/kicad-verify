@@ -332,6 +332,31 @@ def test_bom_expands_designator_ranges(assy_board, tmp_path):
     assert fab._designators("U1-A") == ["U1-A"]  # not a range
 
 
+def test_bom_dnp_rows_part_numbers_and_several_files(assy_board, tmp_path):
+    # KiCad's BOM with a DNP column, as on air-quality-sensor; MPN filled, no supplier column
+    kicad = tmp_path / "board_BOM.csv"
+    kicad.write_text('"Reference","Qty","DNP","Footprint","Value","Manufacturer Part Number (MPN)"\n'
+                     '"B1,B2,B3","3","","R:R","1k","RC0603"\n"C1","1","","R:R","100n","CL10"\n'
+                     '"J1","1","","Conn:J","hdr","PH1"\n"HS1","1","","Mech:Heatsink","HS","H1"\n'
+                     '"R9","1","DNP","R:R","10k","RC0603"\n', encoding="utf-8")
+    r = fab.bom(assy_board, [kicad], "t")[0]
+    assert r.status == PASS, [v["text"] for v in r.violations]  # R9 is DNP on both sides
+    # a supplier BOM with an empty LCSC column but a Digi-Key code is not missing a part number
+    dk = tmp_path / "dk-BOM.csv"
+    dk.write_text("Qty,Reference,Value,PARTNO,DK,LCSC\n3,B1-B3,1k,RC0603,311-1.00KHRCT-ND,\n1,C1,100n,,,\n"
+                  "1,J1,hdr,PH1,,\n1,HS1,HS,H1,,\n", encoding="utf-8")
+    r = fab.bom(assy_board, [dk], "t")[0]
+    assert [v["text"] for v in r.violations] == ["C1: no supplier or manufacturer part number"]
+    # a BOM marking a fitted part DNP is a mismatch
+    bad = tmp_path / "bad_BOM.csv"
+    bad.write_text(kicad.read_text().replace('"C1","1","",', '"C1","1","DNP",'), encoding="utf-8")
+    assert "C1: marked DNP in the BOM but fitted on the PCB" in [
+        v["text"] for v in fab.bom(assy_board, [bad], "t")[0].violations]
+    # several BOMs: the one the board agrees with is checked, the others are named
+    r = fab.bom(assy_board, [bad, kicad], "t")[0]
+    assert r.status == PASS and "board_BOM.csv checked, also found bad_BOM.csv" in r.detail
+
+
 def test_cpl_reads_kicad_ascii_pos_in_inches(assy_board, tmp_path):
     rows = "".join(f"{r:<9} 1k        R_0603   {x / 25.4:.4f}   {-y / 25.4:.4f}   0.0000  top\n"
                    for r, x, y in (("B1", 10, 20), ("B2", 12.54, 20), ("B3", 15.08, 20), ("C1", 25.4, 20),
@@ -449,6 +474,23 @@ def test_gerber_sets_normalise_format_and_skip_plot_artefacts(tmp_path):
              "Profile,NP", "Other,User")
     assert [fab._plot_layer(f) for f in funcs] == [
         "F.Cu", "In1.Cu", "B.Cu", "B.Mask", "F.Paste", "F.Silkscreen", "Edge.Cuts", None]
+
+
+def test_kicad_happy_defaults_and_duplicates():
+    def f(rule, summary, conf="heuristic", sev="error"):
+        return {"rule_id": rule, "severity": sev, "summary": summary, "confidence": conf, "components": ["U5"]}
+    kh = {"schematic": {"findings": [
+        f("PP-001", "IC power pin U3.1 (CB) has no DC path to a power rail"),
+        f("VD-001", "C1 (10uF 4V) exceeds voltage derating on +5V"),  # heuristic, yet a real defect
+        f("FD-001", "No fiducials on F.Cu", "deterministic")]},
+        "pcb": {"findings": [f("TV-001", "Thermal vias: U5 insufficient", "deterministic", "warning")] * 3},
+        "_version": "t"}
+    res = {r.check_id: r for r in happy.to_results(kh, "t", {})}
+    assert res["KH-PP-001"].status == WARN and res["KH-FD-001"].status == WARN
+    assert res["KH-VD-001"].status == FAIL  # still blocks: the seeded 4 V capacitor on 5 V
+    assert len(res["KH-TV-001"].violations) == 1
+    forced = {r.check_id: r for r in happy.to_results(kh, "t", {"kicad_happy": {"severity": {"PP-001": "fail"}}})}
+    assert forced["KH-PP-001"].status == FAIL
 
 
 def _pro(tmp_path, min_clearance, classes, dru=None):

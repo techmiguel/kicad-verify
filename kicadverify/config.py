@@ -54,11 +54,11 @@ def load_yaml(path, default=None):
 def walk(root, max_depth=4):
     root = Path(root)
     base = len(root.parts)
-    for dp, dns, fns in os.walk(root):
-        dns[:] = [d for d in dns if d not in SKIP_DIRS and not d.startswith(".")]
+    for dp, dns, fns in os.walk(root):  # sorted: the order must not depend on the file system
+        dns[:] = sorted(d for d in dns if d not in SKIP_DIRS and not d.startswith("."))
         if len(Path(dp).parts) - base >= max_depth:
             dns[:] = []
-        for f in fns:
+        for f in sorted(fns):
             yield Path(dp) / f
 
 

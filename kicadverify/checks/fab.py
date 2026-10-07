@@ -321,10 +321,34 @@ def _fitted(board, excluded_by):
     return {fp["ref"] for fp in board["footprints"] if not fp["dnp"] and excluded_by not in fp["attr"]}
 
 
-def bom(board, files, label):
-    if not files:
-        return [not_verifiable("FAB-BOM-001", f"{label}: no BOM", "export the BOM (or set params.fab.bom)")]
-    f = files[0]
+PART_NO_COLUMNS = ("lcsc", "jlc", "mpn", "part number", "part_number", "partno", "part #", "digi", "dk",
+                   "mouser", "farnell", "arrow")
+
+
+def _part_numbers(row):
+    """The row's part-number cells (supplier code or manufacturer part number), or None when the BOM
+    has no such column at all."""
+    cols = [k for k in row if k and any(c == k.lower().strip() or (len(c) > 2 and c in k.lower())
+                                        for c in PART_NO_COLUMNS)]
+    return [row[k] or "" for k in cols] if cols else None
+
+
+def _dnp_row(row):
+    """A BOM line that lists parts as not fitted: a DNP / 'Do not populate' column with a mark, or
+    'DNP' as the value."""
+    for k, v in row.items():
+        key, val = (k or "").lower().strip(), (v or "").strip().lower()
+        if key in ("dnp", "do not populate", "do_not_populate", "not fitted", "nofit") and val not in ("", "0", "no",
+                                                                                                    "false"):
+            return True
+        if key in ("fitted", "populate", "populated") and val in ("no", "0", "false", "n"):
+            return True
+        if key in ("value", "comment") and val in ("dnp", "dnf", "nf", "do not populate", "not fitted"):
+            return True
+    return False
+
+
+def _bom_check(board, f):
     rows = _rows(f)
     want = _assembled(board)
     fitted = _fitted(board, "exclude_from_bom")
@@ -332,9 +356,14 @@ def bom(board, files, label):
     for r in rows:
         des = _col(r, "designator", "reference", "references", "ref", "designators") or ""
         fpn = (_col(r, "footprint", "package") or "").strip()
-        lcsc = _col(r, "lcsc part #", "lcsc", "jlcpcb part #", "lcsc part number")
+        parts = _part_numbers(r)
+        dnp = _dnp_row(r)
         for d in _designators(des):
             seen[d] = True
+            if dnp:
+                if d in want:
+                    diffs.append(f"{d}: marked DNP in the BOM but fitted on the PCB")
+                continue
             if d not in want:
                 if d not in fitted:
                     diffs.append(f"{d}: in the BOM but not assembled on the PCB (or excluded from BOM)")
@@ -342,16 +371,32 @@ def bom(board, files, label):
             short = want[d]["name"].split(":")[-1]
             if fpn and fpn != short and fpn != want[d]["name"]:
                 diffs.append(f"{d}: footprint {fpn} in BOM vs {short} on PCB")
-            if lcsc is not None and not lcsc.strip():
-                warns.append(f"{d}: no supplier part number")
+            if parts is not None and not any(x.strip() for x in parts):
+                warns.append(f"{d}: no supplier or manufacturer part number")
     for d in want:
         if d not in seen:
             diffs.append(f"{d}: on the PCB but not in the BOM")
+    return diffs, warns, len(want)
+
+
+def _best(files, check):
+    """With several candidate files, the one the board agrees with best (fewest mismatches, then
+    warnings, then path), and a note naming the others."""
+    scored = sorted(((check(f), str(f)) for f in files), key=lambda x: (len(x[0][0]), len(x[0][1]), x[1]))
+    (res, chosen), others = scored[0], [Path(s).name for _, s in scored[1:]]
+    note = f"; {Path(chosen).name} checked, also found {', '.join(others)} (params.fab chooses one)" if others else ""
+    return res, chosen, note
+
+
+def bom(board, files, label):
+    if not files:
+        return [not_verifiable("FAB-BOM-001", f"{label}: no BOM", "export the BOM (or set params.fab.bom)")]
+    (diffs, warns, nwant), f, note = _best(files, lambda f: _bom_check(board, f))
     vs = [{"key": vkey("bom", d), "text": d} for d in diffs + warns]
     st = FAIL if diffs else (WARN if warns else PASS)
     return [Result("FAB-BOM-001", st,
-                   f"{label}: {count(len(diffs), 'BOM/PCB mismatch')}, {count(len(warns), 'warning')}",
-                   violations=vs, evidence=[str(f)], coverage=coverage("assembled parts", len(want)))]
+                   f"{label}: {count(len(diffs), 'BOM/PCB mismatch')}, {count(len(warns), 'warning')}{note}",
+                   violations=vs, evidence=[str(f)], coverage=coverage("assembled parts", nwant))]
 
 
 def _num(s):
@@ -359,10 +404,7 @@ def _num(s):
     return float(m.group(0)) if m else None
 
 
-def cpl(board, files, label, tol):
-    if not files:
-        return [not_verifiable("FAB-CPL-001", f"{label}: no CPL", "export the placement file (or set params.fab.cpl)")]
-    f = files[0]
+def _cpl_check(board, f, tol):
     rows = _rows(f)
     want = _assembled(board)
     entries = {}
@@ -420,12 +462,19 @@ def cpl(board, files, label, tol):
             side = "bottom" if want[d]["layer"].startswith("B.") else "top"
             if e[2] and not e[2].startswith(side[0]):
                 diffs.append(f"{d}: side {e[2]} in CPL vs {side} on PCB")
+    return diffs, warns, len(want)
+
+
+def cpl(board, files, label, tol):
+    if not files:
+        return [not_verifiable("FAB-CPL-001", f"{label}: no CPL", "export the placement file (or set params.fab.cpl)")]
+    (diffs, warns, nwant), f, note = _best(files, lambda f: _cpl_check(board, f, tol))
     return [Result("FAB-CPL-001", FAIL if diffs else (WARN if warns else PASS),
                    f"{label}: {count(len(diffs), 'CPL/PCB mismatch')}, {count(len(warns), 'warning')} "
-                   "(rotations NOT verified)",
+                   f"(rotations NOT verified){note}",
                    violations=[{"key": vkey("cpl", d.split(':')[0], d.split(':')[1][:12]), "text": d}
                                for d in diffs + warns],
-                   evidence=[str(f)], coverage=coverage("assembled parts", len(want)))]
+                   evidence=[str(f)], coverage=coverage("assembled parts", nwant))]
 
 
 def run(root, pcb, board, label, params, mode):

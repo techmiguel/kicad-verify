@@ -178,14 +178,14 @@ checks:
     layer: fab
     modes: [fast, full]
     inputs: [BOM .csv, .kicad_pcb]
-    covers: Assembled parts missing from the BOM or extra in it (grouped designators such as B1-B4 expanded; fitted padless parts such as heatsinks accepted), footprint per reference, empty supplier codes
+    covers: Assembled parts missing from the BOM or extra in it (grouped designators such as B1-B4 expanded; fitted padless parts such as heatsinks accepted; lines marked DNP must be DNP on the PCB), footprint per reference, lines with no supplier or manufacturer part number in any part-number column. With several BOM files and none chosen in params.fab.bom, the one the board agrees with best is checked and the others are named
     limits: Whether the supplier code is the right part (value, voltage, tolerance); stock
   FAB-CPL-001:
     title: CPL matches the PCB
     layer: fab
     modes: [fast, full]
     inputs: [CPL .csv, .kicad_pcb]
-    covers: Missing parts, position not at the pad centre (after detecting origin and Y direction), wrong side; CSV or KiCad's ASCII position file (inches or mm); through-hole parts left out of an SMD-only file are warnings
+    covers: Missing parts, position not at the pad centre (after detecting origin and Y direction), wrong side; CSV or KiCad's ASCII position file (inches or mm); through-hole parts left out of an SMD-only file are warnings. With several placement files and none chosen in params.fab.cpl, the one the board agrees with best is checked and the others are named
     limits: Rotations - every fab house applies its own offsets (HUM-CPL-001)
   ASSERT:
     title: Declarative project assertion
