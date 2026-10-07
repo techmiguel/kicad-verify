@@ -274,12 +274,42 @@ def test_dfm_slot_is_a_capsule(tmp_path):
     assert h2h == ["J1.SH and via GND: 0.450 mm hole to hole < 0.5 mm"]
 
 
+EPAD_PCB = """(kicad_pcb (general (thickness 1.6))
+ (layers (0 "F.Cu" signal) (2 "B.Cu" signal) (25 "Edge.Cuts" user))
+ (footprint "RF_Module:ESP32" (layer "F.Cu") (at 20 20) (property "Reference" "U1") (attr smd)
+  (pad "41" smd rect (at 0 0) (size 3.9 3.9) (layers "F.Cu" "F.Mask") (net "GND"))
+  (pad "41" thru_hole circle (at -1 -1) (size 0.6 0.6) (drill 0.3) (layers "*.Cu") (net "GND"))
+  (pad "41" thru_hole circle (at 1 1) (size 0.45 0.45) (drill 0.3) (layers "*.Cu") (net "GND")))
+ (footprint "Conn:J" (layer "F.Cu") (at 30 20) (property "Reference" "J1")
+  (pad "1" thru_hole circle (at 0 0) (size 0.6 0.6) (drill 0.3) (layers "*.Cu") (net "A")))
+ (gr_rect (start 0 0) (end 50 40) (layer "Edge.Cuts")))"""
+
+
+def test_dfm_thermal_vias_use_via_limits(tmp_path):
+    f = tmp_path / "e.kicad_pcb"
+    f.write_text(EPAD_PCB, encoding="utf-8")
+    r = dfm.geometry(board.load(f), "t", {**PROFILE, "min_pth_annular_mm": 0.18})[0]
+    text = sorted(v["text"] for v in r.violations)
+    # the 0.6/0.3 via inside the exposed pad meets the via ring (0.1 mm); the 0.45/0.3 one does not;
+    # the 0.6/0.3 lead of J1 is a through-hole lead and keeps the PTH limit
+    assert text == ["J1.1: annular ring 0.150 mm < 0.18 mm (pad 0.6x0.6, drill 0.3)",
+                    "U1.41: thermal via annular ring 0.075 mm < 0.1 mm"]
+
+
 ASSY_PCB = """(kicad_pcb (general (thickness 1.6))
  (layers (0 "F.Cu" signal) (2 "B.Cu" signal) (25 "Edge.Cuts" user))
 """ + "".join(f""" (footprint "R:R" (layer "F.Cu") (at {x} 20) (property "Reference" "{r}") (attr smd)
   (pad "1" smd rect (at -0.5 0) (size 0.5 0.5) (layers "F.Cu") (net "A"))
   (pad "2" smd rect (at 0.5 0) (size 0.5 0.5) (layers "F.Cu") (net "B")))
-""" for r, x in (("B1", 10), ("B2", 12.54), ("B3", 15.08), ("C1", 25.4))) + ")"
+""" for r, x in (("B1", 10), ("B2", 12.54), ("B3", 15.08), ("C1", 25.4))) + """
+ (footprint "Conn:J" (layer "F.Cu") (at 40 20) (property "Reference" "J1") (attr through_hole)
+  (pad "1" thru_hole circle (at 0 0) (size 1.7 1.7) (drill 1.0) (layers "*.Cu") (net "A")))
+ (footprint "Mech:Heatsink" (layer "B.Cu") (at 30 30) (property "Reference" "HS1") (attr through_hole))
+ (footprint "Fiducial:Fiducial_1mm" (layer "F.Cu") (at 5 5) (property "Reference" "FID1")
+  (attr smd exclude_from_bom)
+  (pad "" smd circle (at 0 0) (size 1 1) (layers "F.Cu" "F.Mask")))
+ (footprint "R:R" (layer "F.Cu") (at 45 30) (property "Reference" "R9") (attr smd dnp)
+  (pad "1" smd rect (at 0 0) (size 0.5 0.5) (layers "F.Cu") (net "A"))))"""
 
 
 @pytest.fixture
@@ -291,26 +321,42 @@ def assy_board(tmp_path):
 
 def test_bom_expands_designator_ranges(assy_board, tmp_path):
     f = tmp_path / "BOM.csv"
-    f.write_text('"Reference","Value","Footprint"\n"B1-B3","1k","R:R"\n"C1","100n","R:R"\n', encoding="utf-8")
+    f.write_text('"Reference","Value","Footprint"\n"B1-B3","1k","R:R"\n"C1","100n","R:R"\n"J1","hdr","Conn:J"\n'
+                 '"HS1","Heatsink","Mech:Heatsink"\n', encoding="utf-8")
     r = fab.bom(assy_board, [f], "t")[0]
-    assert r.status == PASS, [v["text"] for v in r.violations]
+    assert r.status == PASS, [v["text"] for v in r.violations]  # HS1 has no pads but is on the PCB
+    f.write_text(f.read_text() + '"R9","10k","R:R"\n', encoding="utf-8")
+    assert [v["text"] for v in fab.bom(assy_board, [f], "t")[0].violations] == [
+        "R9: in the BOM but not assembled on the PCB (or excluded from BOM)"]  # DNP on the PCB
     assert fab._designators("R1-3, R7;U2") == ["R1", "R2", "R3", "R7", "U2"]
     assert fab._designators("U1-A") == ["U1-A"]  # not a range
 
 
 def test_cpl_reads_kicad_ascii_pos_in_inches(assy_board, tmp_path):
-    rows = "".join(f"{r:<9} 1k        R_0603   {x / 25.4:.4f}   {-20 / 25.4:.4f}   0.0000  top\n"
-                   for r, x in (("B1", 10), ("B2", 12.54), ("B3", 15.08), ("C1", 25.4)))
+    rows = "".join(f"{r:<9} 1k        R_0603   {x / 25.4:.4f}   {-y / 25.4:.4f}   0.0000  top\n"
+                   for r, x, y in (("B1", 10, 20), ("B2", 12.54, 20), ("B3", 15.08, 20), ("C1", 25.4, 20),
+                                   ("FID1", 5, 5)))
     f = tmp_path / "position.csv"  # KiCad's ASCII .pos saved with a .csv name, as in real projects
     f.write_text("### Footprint positions - created on 2026-09-29 ###\n### Printed by KiCad version 10.0.6\n"
                  "## Unit = inches, Angle = deg.\n## Side : All\n"
                  "# Ref     Val       Package  PosX       PosY       Rot  Side\n" + rows + "## End\n",
                  encoding="utf-8")
     r = fab.cpl(assy_board, [f], "t", 0.5)[0]
-    assert r.status == PASS, [v["text"] for v in r.violations]
+    # an SMD-only placement file: the through-hole J1 is a warning; the fiducial in it is fine
+    assert r.status == WARN and [v["text"] for v in r.violations] == [
+        "J1: through-hole, not in the SMD-only CPL (fitted by hand?)"]
     f.write_text(f.read_text().replace(f"{25.4 / 25.4:.4f}", "1.1000"), encoding="utf-8")  # C1 moved 2.5 mm
     r = fab.cpl(assy_board, [f], "t", 0.5)[0]
-    assert [v["text"].split(":")[0] for v in r.violations] == ["C1"]
+    assert [v["text"].split(":")[0] for v in r.violations] == ["C1", "J1"]
+
+
+def test_cpl_with_through_hole_parts_requires_all(assy_board, tmp_path):
+    f = tmp_path / "cpl.csv"
+    f.write_text("Designator,Mid X,Mid Y,Layer,Rotation\nB1,10,20,top,0\nB2,12.54,20,top,0\nC1,25.4,20,top,0\n"
+                 "J1,40,20,top,0\nR9,45,30,top,0\n", encoding="utf-8")
+    r = fab.cpl(assy_board, [f], "t", 0.5)[0]
+    assert r.status == FAIL
+    assert sorted(v["text"].split(":")[0] for v in r.violations) == ["B3", "R9"]  # missing; DNP placed
 
 
 WIDTH_PCB = """(kicad_pcb (general (thickness 1.6))

@@ -66,7 +66,7 @@ checks:
     layer: board
     modes: [fast, full]
     inputs: [.kicad_pcb]
-    covers: Tracks narrower than min_power_width_mm on nets whose name looks like power
+    covers: Tracks narrower than min_power_width_mm on nets whose name looks like power, except a rail's control or status signals (`VBUS_EN`, `VIN_SENSE`); names the pads the thin tracks reach
     limits: Real current capacity (copper weight, length, temperature rise); power nets with unusual names (power_net_patterns); planes and zones
   PCB-PINS-001:
     title: Critical pins vs pins.yaml
@@ -143,7 +143,7 @@ checks:
     layer: fab
     modes: [fast, full]
     inputs: [.kicad_pcb, fab profile]
-    covers: Measured track width, via drill/pad/annular ring, plated-hole drill and annular ring, hole-to-hole distance, copper-to-board-edge distance (tracks, vias, pads, filled zones), board size, layer count and thickness
+    covers: Measured track width, via drill/pad/annular ring, plated-hole drill and annular ring (via limits for thermal vias inside an SMD pad), hole-to-hole distance (slots as capsules), copper-to-board-edge distance (tracks, vias, pads, filled zones), board size, layer count and thickness
     limits: Copper-to-copper spacing (FAB-RULES-001 + DRC); arcs approximated by 16 segments; non-rectangular custom pads approximated by their bounding box; silkscreen and solder mask
   ISO-SEP-001:
     title: Copper separation across isolation barriers
@@ -178,14 +178,14 @@ checks:
     layer: fab
     modes: [fast, full]
     inputs: [BOM .csv, .kicad_pcb]
-    covers: Assembled parts missing from the BOM or extra in it, footprint per reference, empty supplier codes
+    covers: Assembled parts missing from the BOM or extra in it (grouped designators such as B1-B4 expanded; fitted padless parts such as heatsinks accepted), footprint per reference, empty supplier codes
     limits: Whether the supplier code is the right part (value, voltage, tolerance); stock
   FAB-CPL-001:
     title: CPL matches the PCB
     layer: fab
     modes: [fast, full]
     inputs: [CPL .csv, .kicad_pcb]
-    covers: Missing parts, position not at the pad centre (after detecting origin and Y direction), wrong side
+    covers: Missing parts, position not at the pad centre (after detecting origin and Y direction), wrong side; CSV or KiCad's ASCII position file (inches or mm); through-hole parts left out of an SMD-only file are warnings
     limits: Rotations - every fab house applies its own offsets (HUM-CPL-001)
   ASSERT:
     title: Declarative project assertion

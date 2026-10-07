@@ -249,12 +249,20 @@ def _assembled(board):
             and fp["pads"]}
 
 
+def _fitted(board, excluded_by):
+    """PCB footprints that are fitted and not excluded by `excluded_by` (exclude_from_bom or
+    exclude_from_pos_files): a BOM or CPL line for one of them is not a mismatch even when the part
+    is not required there (a padless heatsink, a fiducial)."""
+    return {fp["ref"] for fp in board["footprints"] if not fp["dnp"] and excluded_by not in fp["attr"]}
+
+
 def bom(board, files, label):
     if not files:
         return [not_verifiable("FAB-BOM-001", f"{label}: no BOM", "export the BOM (or set params.fab.bom)")]
     f = files[0]
     rows = _rows(f)
     want = _assembled(board)
+    fitted = _fitted(board, "exclude_from_bom")
     seen, diffs, warns = {}, [], []
     for r in rows:
         des = _col(r, "designator", "reference", "references", "ref", "designators") or ""
@@ -263,7 +271,8 @@ def bom(board, files, label):
         for d in _designators(des):
             seen[d] = True
             if d not in want:
-                diffs.append(f"{d}: in the BOM but not assembled on the PCB (or excluded from BOM)")
+                if d not in fitted:
+                    diffs.append(f"{d}: in the BOM but not assembled on the PCB (or excluded from BOM)")
                 continue
             short = want[d]["name"].split(":")[-1]
             if fpn and fpn != short and fpn != want[d]["name"]:
@@ -320,12 +329,20 @@ def cpl(board, files, label, tol):
                 m = statistics.median(errs)
                 if best is None or m < best[0]:
                     best = (m, ox, oy, sy)
-    diffs = []
+    diffs, warns = [], []
+    fitted = _fitted(board, "exclude_from_pos_files")
+    # a placement file exported for SMD parts only (KiCad's --smd-only, the usual for machine assembly)
+    # holds no through-hole part: those parts are then hand-fitted, which is a decision, not a mismatch
+    tht = {d for d, fp in want.items() if "smd" not in fp["attr"]}
+    smd_only = bool(entries) and not tht & set(entries)
     for d in want:
         if d not in entries:
-            diffs.append(f"{d}: missing from the CPL (wrong SMD/THT or 'exclude from position files' attribute?)")
+            if smd_only and d in tht:
+                warns.append(f"{d}: through-hole, not in the SMD-only CPL (fitted by hand?)")
+            else:
+                diffs.append(f"{d}: missing from the CPL (wrong SMD/THT or 'exclude from position files' attribute?)")
     for d in entries:
-        if d not in want:
+        if d not in want and d not in fitted:
             diffs.append(f"{d}: in the CPL but not assembled according to the PCB")
     if best:
         _, ox, oy, sy = best
@@ -338,10 +355,11 @@ def cpl(board, files, label, tol):
             side = "bottom" if want[d]["layer"].startswith("B.") else "top"
             if e[2] and not e[2].startswith(side[0]):
                 diffs.append(f"{d}: side {e[2]} in CPL vs {side} on PCB")
-    return [Result("FAB-CPL-001", FAIL if diffs else PASS,
-                   f"{label}: {count(len(diffs), 'CPL/PCB mismatch')} (rotations NOT verified)",
+    return [Result("FAB-CPL-001", FAIL if diffs else (WARN if warns else PASS),
+                   f"{label}: {count(len(diffs), 'CPL/PCB mismatch')}, {count(len(warns), 'warning')} "
+                   "(rotations NOT verified)",
                    violations=[{"key": vkey("cpl", d.split(':')[0], d.split(':')[1][:12]), "text": d}
-                               for d in diffs],
+                               for d in diffs + warns],
                    evidence=[str(f)], coverage=coverage("assembled parts", len(want)))]
 
 

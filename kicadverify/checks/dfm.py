@@ -179,6 +179,21 @@ def hole_shape(p):
     return pad_shape({"x": p["x"], "y": p["y"], "size": (w, h), "shape": "oval", "angle": p.get("angle", 0)})
 
 
+def _thermal_via(fp, p):
+    """A plated hole of a footprint that sits inside an SMD pad with the same number: the via array
+    of an exposed pad (ESP32 modules, QFN thermal pads), not a through-hole lead."""
+    if p["type"] != "thru_hole" or p.get("drill2") not in (None, p["drill"]):
+        return False
+    for q in fp["pads"]:
+        if q["type"] == "smd" and q["number"] == p["number"]:
+            shape = pad_shape(q)
+            if shape[0] == "poly" and point_in_poly((p["x"], p["y"]), shape[1]):
+                return True
+            if shape[0] == "capsule" and _pt_seg((p["x"], p["y"]), shape[1], shape[2]) <= shape[3]:
+                return True
+    return False
+
+
 def _bbox(shape):
     if shape[0] == "capsule":
         _, a, b, r = shape
@@ -312,6 +327,13 @@ def geometry(board, label, prof, pcb=None):
             if dmax is not None and max(p["drill"], p["drill2"] or 0) > dmax + 1e-9:
                 bad("dmax", name, f"{name}: drill {max(p['drill'], p['drill2'] or 0)} mm > {dmax} mm")
             if p["type"] != "thru_hole":
+                continue
+            if _thermal_via(fp, p):  # the fab drills and plates it as a via, so via limits apply
+                if vd is not None and p["drill"] < vd - 1e-9:
+                    bad("viadrill", name, f"{name}: thermal via drill {p['drill']} mm < {vd} mm")
+                ring = (min(p["size"]) - p["drill"]) / 2
+                if vring is not None and ring < vring - 1e-9:
+                    bad("viaring", name, f"{name}: thermal via annular ring {ring:.3f} mm < {vring} mm")
                 continue
             if pd is not None and min(p["drill"], p["drill2"] or p["drill"]) < pd - 1e-9:
                 bad("pthdrill", name, f"{name}: plated drill {p['drill']} mm < {pd} mm")
