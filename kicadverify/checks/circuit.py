@@ -123,6 +123,23 @@ class Circuit:
                 return net
         return None
 
+    def led_channels(self, ref):
+        """[(colour, anode net, cathode net)] of an LED: one channel for A/K, one per colour for multi-colour
+        packages with a common anode (A + RK/GK/BK) or cathode (RA/GA/BA + K). [] if the pins are not named."""
+        an, ka = {}, {}
+        for nm, net in self.pins(ref).values():
+            m = LED_PIN.fullmatch(nm.upper())
+            if m and net:
+                col, side = m.group(1) or "", m.group(2)[0]
+                (an if side in "A+" else ka)[col] = net
+        if len(an) == 1 and len(ka) == 1:
+            return [("", *an.values(), *ka.values())]
+        if len(an) == 1 and "" in an:
+            return [(col, an[""], net) for col, net in sorted(ka.items())]
+        if len(ka) == 1 and "" in ka:
+            return [(col, net, ka[""]) for col, net in sorted(an.items())]
+        return [(col, an[col], ka[col]) for col in sorted(an) if col and col in ka] if set(an) == set(ka) else []
+
     def two_pins(self, ref):
         p = sorted(self.pins(ref).items(), key=lambda kv: kv[0])
         return (p[0][1][1], p[1][1][1]) if len(p) == 2 else (None, None)
@@ -153,8 +170,13 @@ class Circuit:
         return None, None
 
 
-def _vf(c):
-    txt = " ".join([c["value"], c["description"], c["fields"].get("Color", ""), c["fields"].get("Colour", "")])
+COLOUR = {"R": "red", "G": "green", "B": "blue", "W": "white", "Y": "yellow"}
+LED_PIN = re.compile(r"([RGBWY])?[_-]?(A|K|ANODE|CATHODE|\+|-)")
+
+
+def _vf(c, colour=""):
+    txt = COLOUR.get(colour) or " ".join([c["value"], c["description"], c["fields"].get("Color", ""),
+                                          c["fields"].get("Colour", "")])
     for pat, vf in VF:
         if pat.search(txt):
             return vf
@@ -189,43 +211,45 @@ def run(nl, label, params):
         if k in ("led", "diode", "clamp", "ecap"):
             pol_total += 1
         if k in ("led", "diode", "clamp"):
-            a = cir.pin_by_name(r, "A", "ANODE", "+")
-            kk = cir.pin_by_name(r, "K", "CATHODE", "-")
-            if not a or not kk:
+            chans = cir.led_channels(r) if k == "led" else \
+                [("", cir.pin_by_name(r, "A", "ANODE", "+"), cir.pin_by_name(r, "K", "CATHODE", "-"))]
+            if not chans or not all(a and kk for _, a, kk in chans):
                 pol_gap.append({"key": vkey("polgap", r), "text": f"{r} ({c['value']}): pins not named A/K"})
                 continue
-            va, vk = cir.v.get(a), cir.v.get(kk)
-            across = {n["ref"] for n in cir.others(a, r) if cir.kind.get(n["ref"]) in ("relay", "inductor")} & \
-                {n["ref"] for n in cir.others(kk, r)}
-            if k == "led":
-                decided = side_v(a, r) is not None and side_v(kk, r) is not None
-            elif k == "diode":
-                # a flyback across a coil with its cathode on a known rail is decided too
-                decided = va is not None or bool(across and vk is not None)
-            else:
-                decided = va is not None and vk is not None
-            if not decided:
-                pol_gap.append({"key": vkey("polgap", r), "text": f"{r} ({c['value']}): voltage of {a} / {kk} unknown "
-                                                                  "(name the rail or set net_voltages)"})
-            if k == "led":
-                # anode pulled to GND (directly or through its series resistor) => reversed / never lights
-                a_low = va == 0 or any(cir.v.get(f) == 0 for _, _, f in cir.through_resistor(a, r))
-                k_high = (vk or 0) > 0 or any((cir.v.get(f) or 0) > 0 for _, _, f in cir.through_resistor(kk, r))
-                if a_low or (k_high and (va == 0 or a_low)):
-                    pol.append(f"{r} ({c['value']}): LED anode on {a} resolves to GND - reversed, it will never light")
-                elif va is not None and vk is not None and va < vk:
-                    pol.append(f"{r} ({c['value']}): LED reverse-biased ({a}={va} V < {kk}={vk} V)")
-            elif k == "diode":
-                if va and va > 0 and vk == 0:
-                    pol.append(f"{r} ({c['value']}): anode on {a} ({va} V), cathode on GND - forward short across the supply")
-                coil = [n["ref"] for n in cir.others(a, r) if cir.kind.get(n["ref"]) in ("relay", "inductor")]
-                coil = [x for x in coil if x in {n["ref"] for n in cir.others(kk, r)}]
-                if coil and va and va > 0:
-                    pol.append(f"{r} ({c['value']}): flyback diode across {coil[0]} is reversed (anode on supply {a}); "
-                               "it shorts the supply when the switch turns on")
-            elif k == "clamp":
-                if va and va > 0 and vk == 0:
-                    pol.append(f"{r} ({c['value']}): clamp/zener forward-biased (anode {a}={va} V, cathode GND)")
+            for ch, a, kk in chans:
+                name = f"{r}.{ch}" if ch else r
+                va, vk = cir.v.get(a), cir.v.get(kk)
+                across = {n["ref"] for n in cir.others(a, r) if cir.kind.get(n["ref"]) in ("relay", "inductor")} & \
+                    {n["ref"] for n in cir.others(kk, r)}
+                if k == "led":
+                    decided = side_v(a, r) is not None and side_v(kk, r) is not None
+                elif k == "diode":
+                    # a flyback across a coil with its cathode on a known rail is decided too
+                    decided = va is not None or bool(across and vk is not None)
+                else:
+                    decided = va is not None and vk is not None
+                if not decided:
+                    pol_gap.append({"key": vkey("polgap", name), "text": f"{name} ({c['value']}): voltage of {a} / {kk} unknown "
+                                                                      "(name the rail or set net_voltages)"})
+                if k == "led":
+                    # anode pulled to GND (directly or through its series resistor) => reversed / never lights
+                    a_low = va == 0 or any(cir.v.get(f) == 0 for _, _, f in cir.through_resistor(a, r))
+                    k_high = (vk or 0) > 0 or any((cir.v.get(f) or 0) > 0 for _, _, f in cir.through_resistor(kk, r))
+                    if a_low or (k_high and (va == 0 or a_low)):
+                        pol.append(f"{name} ({c['value']}): LED anode on {a} resolves to GND - reversed, it will never light")
+                    elif va is not None and vk is not None and va < vk:
+                        pol.append(f"{name} ({c['value']}): LED reverse-biased ({a}={va} V < {kk}={vk} V)")
+                elif k == "diode":
+                    if va and va > 0 and vk == 0:
+                        pol.append(f"{name} ({c['value']}): anode on {a} ({va} V), cathode on GND - forward short across the supply")
+                    coil = [n["ref"] for n in cir.others(a, r) if cir.kind.get(n["ref"]) in ("relay", "inductor")]
+                    coil = [x for x in coil if x in {n["ref"] for n in cir.others(kk, r)}]
+                    if coil and va and va > 0:
+                        pol.append(f"{name} ({c['value']}): flyback diode across {coil[0]} is reversed (anode on supply {a}); "
+                                   "it shorts the supply when the switch turns on")
+                elif k == "clamp":
+                    if va and va > 0 and vk == 0:
+                        pol.append(f"{name} ({c['value']}): clamp/zener forward-biased (anode {a}={va} V, cathode GND)")
         elif k == "ecap":
             pins = cir.pins(r)
             plus = next((net for num, (nm, net) in pins.items() if nm == "+" or (not nm and num == "1")), None)
@@ -265,43 +289,46 @@ def run(nl, label, params):
     for r, k in cir.kind.items():
         if k != "led":
             continue
-        led_total += 1
-        a = cir.pin_by_name(r, "A", "ANODE")
-        kk = cir.pin_by_name(r, "K", "CATHODE")
-        if not a or not kk:
+        chans = cir.led_channels(r)
+        led_total += len(chans) or 1
+        if not chans:
             led_gap.append({"key": vkey("ledgap", r), "text": f"{r}: pins not named A/K"})
             continue
-        vf = _vf(cir.c[r])
-        found = False
-        for side, net, other in (("anode", a, kk), ("cathode", kk, a)):
-            for rref, ohms, far in cir.through_resistor(net, r):
-                if not ohms:
-                    continue
-                if side == "anode":
-                    vtop, how = cir.drive_level(far, rref)
-                    vtop = logic_v if how == "logic" else vtop
-                    vbot, how2 = cir.drive_level(other, r)
-                    vbot = 0.0 if vbot is None and how2 in (None, "logic", "switch") else vbot
-                else:
-                    vbot, how = cir.drive_level(far, rref)
-                    vbot = 0.2 if how == "switch" else (0.0 if how == "logic" else vbot)
-                    vtop, how2 = cir.drive_level(other, r)
-                    vtop = logic_v if how2 == "logic" else vtop
-                if vtop is None or vbot is None:
-                    continue
-                i_ma = (vtop - vbot - vf) / ohms * 1000
-                found = True
-                txt = f"{r}: {i_ma:.1f} mA through {rref} ({cir.c[rref]['value']}) from {vtop} V, Vf≈{vf} V"
-                led_info.append(txt)
-                if i_ma > led_max:
-                    led_issues.append((FAIL, txt + f" > {led_max} mA"))
-                elif i_ma < led_min:
-                    led_issues.append((WARN, txt + f" < {led_min} mA (too dim or not lit)"))
-        if not found and not any(cir.kind.get(n["ref"]) == "resistor" for n in cir.others(a, r) + cir.others(kk, r)):
-            led_issues.append((WARN, f"{r}: no series resistor found (constant-current driver?)"))
-        elif not found:
-            led_gap.append({"key": vkey("ledgap", r), "text": f"{r}: current not computable (drive level or "
-                                                              "resistor value unknown)"})
+        for ch, a, kk in chans:
+            name = f"{r}.{ch}" if ch else r
+            vf = _vf(cir.c[r], ch)
+            found = False
+            for side, net, other in (("anode", a, kk), ("cathode", kk, a)):
+                if cir.v.get(net) is not None:
+                    continue  # pin straight on a rail: its other resistors (pull-ups...) are not in series
+                for rref, ohms, far in cir.through_resistor(net, r):
+                    if not ohms:
+                        continue
+                    if side == "anode":
+                        vtop, how = cir.drive_level(far, rref)
+                        vtop = logic_v if how == "logic" else vtop
+                        vbot, how2 = cir.drive_level(other, r)
+                        vbot = 0.0 if vbot is None and how2 in (None, "logic", "switch") else vbot
+                    else:
+                        vbot, how = cir.drive_level(far, rref)
+                        vbot = 0.2 if how == "switch" else (0.0 if how == "logic" else vbot)
+                        vtop, how2 = cir.drive_level(other, r)
+                        vtop = logic_v if how2 == "logic" else vtop
+                    if vtop is None or vbot is None:
+                        continue
+                    i_ma = (vtop - vbot - vf) / ohms * 1000
+                    found = True
+                    txt = f"{name}: {i_ma:.1f} mA through {rref} ({cir.c[rref]['value']}) from {vtop} V, Vf≈{vf} V"
+                    led_info.append(txt)
+                    if i_ma > led_max:
+                        led_issues.append((FAIL, txt + f" > {led_max} mA"))
+                    elif i_ma < led_min:
+                        led_issues.append((WARN, txt + f" < {led_min} mA (too dim or not lit)"))
+            if not found and not any(cir.kind.get(n["ref"]) == "resistor" for n in cir.others(a, r) + cir.others(kk, r)):
+                led_issues.append((WARN, f"{name}: no series resistor found (constant-current driver?)"))
+            elif not found:
+                led_gap.append({"key": vkey("ledgap", name), "text": f"{name}: current not computable (drive level or "
+                                                                  "resistor value unknown)"})
     st = FAIL if any(s == FAIL for s, _ in led_issues) else WARN if led_issues else PASS
     res.append(Result("CIR-LED-001", st, f"{label}: {len(led_issues)} LED current problems ({len(led_info)} LEDs computed)",
                       violations=[{"key": vkey("led", t.split(':')[0], s), "text": t} for s, t in led_issues],

@@ -1,8 +1,8 @@
 """Unit tests that need neither KiCad nor network."""
 
 from kicadverify import netlist, review, sexp, waivers
-from kicadverify.checks import circuit, parity
-from kicadverify.report import FAIL, PASS, Result
+from kicadverify.checks import circuit, fab, parity
+from kicadverify.report import FAIL, PASS, WARN, Result
 
 
 def test_sexp_parses_strings_and_escapes():
@@ -100,6 +100,45 @@ def test_led_polarity_and_current():
     assert _status(rev, "CIR-POL-001") == FAIL
     hot, _ = circuit.run(_led_board("Net-(D1-A)", "GND", "10"), "t", {})
     assert _status(hot, "CIR-LED-001") == FAIL
+
+
+def _rgb_board(r_value="1k"):
+    """Common-anode RGB LED on +3V3, one resistor per cathode to a GPIO; a 10k pull-up also on +3V3."""
+    pas = {"name": "", "type": "passive"}
+    comps = {"D1": {"value": "LED_RGB_CA", "part": "LED_RGB", "description": "RGB LED, red/green/blue/anode",
+                    "pins": {"1": {"name": "RK", "type": "passive"}, "2": {"name": "GK", "type": "passive"},
+                             "3": {"name": "BK", "type": "passive"}, "4": {"name": "A", "type": "passive"}}},
+             "R9": {"value": "10k", "part": "R", "pins": {"1": dict(pas), "2": dict(pas)}},
+             "U1": {"value": "MCU", "part": "MCU", "pins": {str(i): {"name": f"IO{i}", "type": "bidirectional"}
+                                                            for i in range(1, 5)}}}
+    nets = {"+3V3": [{"ref": "D1", "pin": "4", "name": "A", "type": "passive"},
+                     {"ref": "R9", "pin": "1", **pas}],
+            "/EN": [{"ref": "R9", "pin": "2", **pas}, {"ref": "U1", "pin": "4", "name": "IO4", "type": "bidirectional"}]}
+    for i, (col, ref) in enumerate((("R", "R10"), ("G", "R11"), ("B", "R12")), start=1):
+        comps[ref] = {"value": r_value, "part": "R", "pins": {"1": dict(pas), "2": dict(pas)}}
+        nets[f"/LED_{col}K"] = [{"ref": "D1", "pin": str(i), "name": f"{col}K", "type": "passive"},
+                                {"ref": ref, "pin": "2", **pas}]
+        nets[f"/LED_{col}"] = [{"ref": ref, "pin": "1", **pas},
+                               {"ref": "U1", "pin": str(i), "name": f"IO{i}", "type": "bidirectional"}]
+    return _nl(comps, nets)
+
+
+def test_rgb_led_one_channel_per_cathode():
+    res, _ = circuit.run(_rgb_board(), "t", {})
+    led = next(r for r in res if r.check_id == "CIR-LED-001")
+    assert led.coverage["total"] == 3 and not led.coverage["unchecked"]
+    assert _status(res, "CIR-POL-001") == PASS and led.status in (PASS, WARN)
+    assert not any("R9" in v["text"] for v in led.violations)  # the pull-up on the anode rail is not in series
+    hot, _ = circuit.run(_rgb_board("10"), "t", {})
+    assert _status(hot, "CIR-LED-001") == FAIL
+
+
+def test_routed_slots_are_not_round_holes(tmp_path):
+    drl = tmp_path / "x-NPTH.drl"
+    drl.write_text("M48\nMETRIC\nT1C0.580\nT2C0.660\n%\nG90\nG05\nT2\nX96.25Y-116.0\n"
+                   "T1\nX103.54Y-116.0G85X103.96Y-116.0\nG05\nM30\n")
+    holes, decimal = fab._drill_holes([drl])
+    assert holes == [(0.66, 96.25, -116.0)] and decimal
 
 
 def test_regulator_mismatch():
