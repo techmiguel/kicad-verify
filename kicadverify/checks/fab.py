@@ -15,7 +15,7 @@ from pathlib import Path
 
 from .. import config
 from ..config import walk
-from ..report import FAIL, PASS, WARN, Result, coverage, not_verifiable
+from ..report import FAIL, PASS, WARN, Result, count, coverage, not_verifiable
 from ..waivers import vkey
 
 GERBER_EXT = (".gbr", ".gtl", ".gbl", ".gts", ".gbs", ".gto", ".gbo", ".gtp", ".gbp", ".gm1",
@@ -87,10 +87,10 @@ def gerbers(pcb, board, files, label):
     have = _gerber_sets(files)
     funcs = set(have)
     ncu = len(board["copper_layers"]) or 2
-    need = [f"Copper,L1,Top", f"Copper,L{ncu},Bot", "Soldermask,Top", "Soldermask,Bot", "Profile,NP"]
+    need = ["Copper,L1,Top", f"Copper,L{ncu},Bot", "Soldermask,Top", "Soldermask,Bot", "Profile,NP"]
     missing = [n for n in need if n not in funcs]
     res.append(Result("FAB-GERBER-001", FAIL if missing else PASS,
-                      f"{label}: {len(missing)} mandatory Gerber layers missing",
+                      f"{label}: {count(len(missing), 'mandatory Gerber layer')} missing",
                       violations=[{"key": vkey("gerb", n), "text": n} for n in missing],
                       evidence=list(files), coverage=coverage("mandatory layers", len(need))))
     # freshness: re-plot with kicad-cli and compare functional geometry per layer
@@ -112,14 +112,18 @@ def gerbers(pcb, board, files, label):
             if extra or lost:
                 diffs.append(f"{func}: {extra} items new on the PCB, {lost} items no longer on the PCB")
         elif coords:  # an empty layer (e.g. bottom paste with no bottom SMD) needs no export
-            gap.append({"key": vkey("stalegap", func), "text": f"{func}: plotted from the PCB, not in the exported set"})
+            gap.append({"key": vkey("stalegap", func),
+                        "text": f"{func}: plotted from the PCB, not in the exported set"})
     for func in [f for f in set(have) - set(fresh) if have[f]]:
-        gap.append({"key": vkey("stalegap", func), "text": f"{func}: exported, not produced by the board plot settings"})
+        gap.append({"key": vkey("stalegap", func),
+                    "text": f"{func}: exported, not produced by the board plot settings"})
     res.append(Result("FAB-STALE-001", FAIL if diffs else PASS,
-                      f"{label}: {len(diffs)} Gerber layers do not match the current PCB"
+                      f"{label}: {count(len(diffs), 'Gerber layer')} not matching the current PCB"
                       + (" (re-export them)" if diffs else ""),
                       violations=[{"key": vkey("stale", d.split(':')[0]), "text": d} for d in diffs],
-                      evidence=list(files), coverage=coverage("Gerber layers", len({f for f in set(have) | set(fresh) if have.get(f) or fresh.get(f)}), gap)))
+                      evidence=list(files),
+                      coverage=coverage("Gerber layers",
+                                        len({f for f in set(have) | set(fresh) if have.get(f) or fresh.get(f)}), gap)))
     return res
 
 
@@ -178,11 +182,12 @@ def drills(board, files, label):
         diffs += [f"hole Ø{d} mm at ({x:.2f}, {y:.2f}) on the PCB has no match in the .drl files" for d, x, y in best]
     else:
         note = " (positions not compared: non-decimal format)"
-        gap = [{"key": vkey("drillgap", "positions"), "text": f"{len(want)} hole positions not compared "
+        gap = [{"key": vkey("drillgap", "positions"), "text": f"{count(len(want), 'hole position')} not compared "
                                                                "(Excellon without decimal point)"}]
     return [Result("FAB-DRILL-001", FAIL if diffs else PASS,
-                   f"{label}: {len(diffs)} PCB/.drl drill mismatches (slots not compared){note}",
-                   violations=[{"key": vkey("drill", d.split(' on the PCB')[0].split(':')[0]), "text": d} for d in diffs],
+                   f"{label}: {count(len(diffs), 'PCB/.drl drill mismatch')} (slots not compared){note}",
+                   violations=[{"key": vkey("drill", d.split(' on the PCB')[0].split(':')[0]), "text": d}
+                               for d in diffs],
                    evidence=[str(f) for f in files], coverage=coverage("drilled holes", len(want) + (1 if gap else 0),
                                                                         gap))]
 
@@ -234,7 +239,8 @@ def bom(board, files, label):
             diffs.append(f"{d}: on the PCB but not in the BOM")
     vs = [{"key": vkey("bom", d), "text": d} for d in diffs + warns]
     st = FAIL if diffs else (WARN if warns else PASS)
-    return [Result("FAB-BOM-001", st, f"{label}: {len(diffs)} BOM/PCB mismatches, {len(warns)} warnings",
+    return [Result("FAB-BOM-001", st,
+                   f"{label}: {count(len(diffs), 'BOM/PCB mismatch')}, {count(len(warns), 'warning')}",
                    violations=vs, evidence=[str(f)], coverage=coverage("assembled parts", len(want)))]
 
 
@@ -297,7 +303,7 @@ def cpl(board, files, label, tol):
             if e[2] and not e[2].startswith(side[0]):
                 diffs.append(f"{d}: side {e[2]} in CPL vs {side} on PCB")
     return [Result("FAB-CPL-001", FAIL if diffs else PASS,
-                   f"{label}: {len(diffs)} CPL/PCB mismatches (rotations NOT verified)",
+                   f"{label}: {count(len(diffs), 'CPL/PCB mismatch')} (rotations NOT verified)",
                    violations=[{"key": vkey("cpl", d.split(':')[0], d.split(':')[1][:12]), "text": d}
                                for d in diffs],
                    evidence=[str(f)], coverage=coverage("assembled parts", len(want)))]

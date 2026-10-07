@@ -5,25 +5,51 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "kicad-verify"
 version = "0.5.0"
-description = "Requirements-based verification for KiCad projects: every requirement has a source, a verification method, evidence, explicit coverage and a VERIFIED / FAILED / NOT_VERIFIABLE / NOT_RUN status; CI gates and release manifests"
+description = "Requirements-based verification for KiCad 10 projects: is this PCB ready to manufacture, and what is the evidence?"
 readme = "README.md"
 license = {text = "MIT"}
 requires-python = ">=3.10"
 dependencies = ["pyyaml>=6", "pypdf[crypto]>=4", "fonttools>=4"]
 keywords = ["kicad", "pcb", "verification", "requirements", "traceability", "dfm", "ci", "erc", "drc", "design-review", "claude-code"]
-classifiers = ["Programming Language :: Python :: 3", "Topic :: Scientific/Engineering :: Electronic Design Automation (EDA)"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Intended Audience :: Manufacturing",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: Electronic Design Automation (EDA)",
+]
 
 [project.optional-dependencies]
 test = ["pytest>=7"]
+dev = ["pytest>=7", "ruff>=0.6"]
 
 [project.scripts]
 kicadverify = "kicadverify.cli:main"
 
 [project.urls]
 Homepage = "https://github.com/techmiguel/kicad-verify"
+Changelog = "https://github.com/techmiguel/kicad-verify/blob/main/CHANGELOG.md"
+Issues = "https://github.com/techmiguel/kicad-verify/issues"
 
 [tool.setuptools.packages.find]
 include = ["kicadverify*"]
 
 [tool.setuptools.package-data]
 kicadverify = ["data/*", "data/templates/*", "data/ci/*", "data/claude/skills/*/*"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "B", "UP"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

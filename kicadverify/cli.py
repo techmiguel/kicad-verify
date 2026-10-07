@@ -6,13 +6,25 @@ import sys
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-from . import (attest, config, interface, manifest, netlist, outputs, provenance, report, requirements, review,
-               signoff, waivers)
+from . import (__version__, attest, config, interface, manifest, netlist, outputs, provenance, report, requirements,
+               review, signoff, waivers)
 from .checks import assertions, board as board_mod
 from .checks import circuit, dfm, fab, happy, isolation, kicad_cli, parity
 from .report import FAIL, PASS, SKIP, WARN, Result
 
 EXIT_OK, EXIT_BLOCKED, EXIT_CONFIG, EXIT_NO_PROJECT = 0, 1, 2, 3
+PROJECT_COMMANDS = (
+    ("init", "create verification/pcb/ with templates (and, with --ci github, a CI workflow)"),
+    ("verify", "run the deterministic verifiers and evaluate every requirement against a gate"),
+    ("review", "verify, then run the independent reviewer (Claude Code CLI)"),
+    ("release", "fab gate + review + sign-offs, then write the release manifest"),
+    ("audit", "check that the files still match the release manifest"),
+    ("attest", "verify and write an in-toto attestation"),
+    ("status", "project status and the last verification, as JSON"),
+    ("requirements", "list the requirement set (traceability table) or lint it"),
+    ("interface", "export the board STEP and interface JSON for mechanical checks"),
+    ("datasheets", "download the datasheets linked from the schematic"),
+)
 
 
 def _filter_disabled(results, disabled):
@@ -79,9 +91,9 @@ def checks(root, proj, mode):
                                       outcome=report.NOT_VERIFIABLE))
         if mode == "full":
             if k["pcb"].exists():
-                jobs.append(lambda p=k["pcb"], l=label: kicad_cli.drc(p, l, ev_dir))
+                jobs.append(lambda p=k["pcb"], lab=label: kicad_cli.drc(p, lab, ev_dir))
                 jobs.append(lambda kk=k: _interface(kk, params, proj))
-            jobs.append(lambda s=k["sch"], l=label: kicad_cli.erc(s, l, ev_dir))
+            jobs.append(lambda s=k["sch"], lab=label: kicad_cli.erc(s, lab, ev_dir))
     if jobs:  # ERC, DRC and the STEP export take tens of seconds each: run them in parallel
         with ThreadPoolExecutor(max_workers=4) as ex:
             for r in ex.map(lambda j: j(), jobs):
@@ -220,21 +232,18 @@ def _exit(rep, gate):
     return EXIT_OK if rep["verification"]["gates"][gate]["pass"] else EXIT_BLOCKED
 
 
-def main(argv=None):
-    for st in (sys.stdout, sys.stderr):
-        try:
-            st.reconfigure(encoding="utf-8")
-        except Exception:
-            pass
+def build_parser():
     ap = argparse.ArgumentParser(prog="kicadverify",
-                                 description="Requirements-based verification for KiCad projects: every requirement "
-                                             "has a source, a verification method, evidence, explicit coverage and a "
-                                             "status VERIFIED / FAILED / NOT_VERIFIABLE / NOT_RUN")
-    sub = ap.add_subparsers(dest="cmd", required=True)
-    for name in ("verify", "init", "status", "review", "release", "interface", "requirements", "datasheets", "audit",
-                 "attest"):
-        p = sub.add_parser(name)
-        p.add_argument("path", nargs="?", default=".")
+                                 description="Requirements-based verification for KiCad 10 projects: every "
+                                             "requirement has a source, a verification method, evidence and a status "
+                                             "(VERIFIED / FAILED / NOT_VERIFIABLE / NOT_RUN); gates decide from them.",
+                                 epilog="Start with `kicadverify init PATH`, "
+                                        "then `kicadverify verify PATH --gate fab`.")
+    ap.add_argument("--version", action="version", version=f"kicad-verify {__version__}")
+    sub = ap.add_subparsers(dest="cmd", required=True, metavar="COMMAND")
+    for name, help_ in PROJECT_COMMANDS:
+        p = sub.add_parser(name, help=help_, description=help_)
+        p.add_argument("path", nargs="?", default=".", help="KiCad project directory (default: current directory)")
         if name in ("verify", "review", "release"):
             p.add_argument("--junit", help="write a JUnit XML report (one test case per requirement)")
             p.add_argument("--markdown", help="write the Markdown report (appends when the path ends in STEP_SUMMARY)")
@@ -264,27 +273,36 @@ def main(argv=None):
         if name == "audit":
             p.add_argument("--manifest", help="manifest to check (default verification/pcb/release/manifest.json)")
     p = sub.add_parser("signoff", help="record a human sign-off for the current design")
-    p.add_argument("id")
-    p.add_argument("--by", required=True)
-    p.add_argument("--note", default="")
+    p.add_argument("id", help="human requirement, e.g. HUM-FIT-001")
+    p.add_argument("--by", required=True, help="who checked it")
+    p.add_argument("--note", default="", help="what was checked and how")
     p.add_argument("--fail", action="store_true", help="record that the check found the requirement NOT met")
-    p.add_argument("--path", default=".")
+    p.add_argument("--path", default=".", help="project path (default: current directory)")
     p = sub.add_parser("check-attestation", help="re-check an attestation against the files on disk")
-    p.add_argument("attestation")
+    p.add_argument("attestation", help="the .intoto.json file")
     p.add_argument("--path", default=".")
     p.add_argument("--allowed-signers", help="ssh allowed_signers file to verify the signature")
     p.add_argument("--identity", help="expected signer identity (default: looked up in allowed signers)")
     p = sub.add_parser("explain", help="the chain of proof behind one requirement's verdict")
-    p.add_argument("id")
+    p.add_argument("id", help="requirement, e.g. CIR-POL-001")
     p.add_argument("--path", default=".")
     p = sub.add_parser("checks", help="list the verifiers with what they cover and do not cover")
-    p.add_argument("--markdown", action="store_true")
+    p.add_argument("--markdown", action="store_true", help="print the table as Markdown (docs/COVERAGE.md)")
     sub.add_parser("profiles", help="list the built-in fab capability profiles")
     sub.add_parser("setup", help="download the pinned kicad-happy engine")
     p = sub.add_parser("install-claude", help="install hooks and skills into ~/.claude")
-    p.add_argument("--no-hooks", action="store_true")
-    sub.add_parser("uninstall-claude")
-    a = ap.parse_args(argv)
+    p.add_argument("--no-hooks", action="store_true", help="install the skills only")
+    sub.add_parser("uninstall-claude", help="remove the hooks and skills added by install-claude")
+    return ap
+
+
+def main(argv=None):
+    for st in (sys.stdout, sys.stderr):
+        try:
+            st.reconfigure(encoding="utf-8")
+        except Exception:
+            pass
+    a = build_parser().parse_args(argv)
 
     if a.cmd == "setup":
         print("kicad-happy installed at", happy.install())
@@ -318,6 +336,10 @@ def main(argv=None):
             print("\n".join(["Created:"] + [f"  {c}" for c in created]) if created else "Already initialised.")
             return 0
     proj = config.load_project(root)
+    if a.cmd in ("verify", "attest", "review", "release", "interface", "datasheets") and not config.kicad_cli_found():
+        print(f"kicad-cli not found ({config.KICAD_CLI}): ERC, DRC, the netlist and the Gerber re-plot cannot run, "
+              "so the requirements that need them stay NOT_VERIFIABLE. Install KiCad 10 or point KICAD_CLI at it.",
+              file=sys.stderr)
 
     if a.cmd == "requirements":
         items = _lint(proj)
@@ -455,8 +477,8 @@ def _check_attestation(a):
                               f"VALID ({sig['signer']})" if sig and sig["valid"] else
                               f"NOT VERIFIED ({(sig or {}).get('error')})"))
     sub = res["subject"]
-    print(f"  artifacts:  {len(sub['unchanged'])} unchanged, {len(sub['changed'])} changed, {len(sub['missing'])} missing,"
-          f" {len(res['new'])} new design/fabrication files")
+    print(f"  artifacts:  {len(sub['unchanged'])} unchanged, {len(sub['changed'])} changed, "
+          f"{len(sub['missing'])} missing, {len(res['new'])} new design/fabrication files")
     for k in ("changed", "missing"):
         for x in sub[k]:
             print(f"    {k}: {x}")
@@ -464,9 +486,12 @@ def _check_attestation(a):
         print(f"    new: {x}")
     for k, same in res["same"].items():
         was, now = res["values"][k]
-        print(f"  {k:<18}{'same' if same else 'DIFFERENT'}"
-              + ("" if same else f": attested {was}, now {now}")
-              + (f" (changed: {', '.join(res.get('policy_components_changed', []))})" if k == "policy" and not same else ""))
+        line = f"  {k:<18}{'same' if same else 'DIFFERENT'}"
+        if not same:
+            line += f": attested {was}, now {now}"
+            if k == "policy":
+                line += f" (changed: {', '.join(res.get('policy_components_changed', []))})"
+        print(line)
     s = p["summary"]["by_status"]
     print(f"  claimed:    {', '.join(f'{k} {v}' for k, v in s.items())}; gates "
           + ", ".join(f"{k} {'PASS' if g['pass'] else 'BLOCKED'}" for k, g in p["gates"].items()))
@@ -493,7 +518,8 @@ def _explain(root, rid):
          f"  requirement  {v['text']}",
          f"  source       {(v.get('source') or {}).get('kind')}: {(v.get('source') or {}).get('ref')}"
          + (" (UNCONFIRMED)" if (v.get("source") or {}).get("confirmed") is False else ""),
-         f"  method       {v['method']} via {', '.join(v['verified_by'])}; acceptance {v['acceptance']}; gate {v['gate']}",
+         f"  method       {v['method']} via {', '.join(v['verified_by'])}; "
+         f"acceptance {v['acceptance']}; gate {v['gate']}",
          f"  reason       {v['reason']}"]
     c = v.get("coverage")
     if c:
@@ -522,7 +548,8 @@ def _explain(root, rid):
               f"{t['kicad-cli']['version']}, kicad-happy {t['kicad-happy']['pinned']}"]
         rp = rep.get("review_provenance")
         if v["method"] == "model" and rp:
-            L.append(f"  reviewer     {(rp.get('reviewer') or {}).get('models') or (rp.get('reviewer') or {}).get('model')}, "
+            who = rp.get("reviewer") or {}
+            L.append(f"  reviewer     {who.get('models') or who.get('model')}, "
                      f"bundle {rp.get('bundle_digest', '')[:23]}, claude {rp.get('claude_cli')}")
     print("\n".join(L))
     return 0
@@ -532,11 +559,14 @@ def requirements_table(proj, md=False):
     rows = []
     for r in sorted(proj["requirements"], key=lambda r: r["id"]):
         src = r.get("source") or {}
-        rows.append((r["id"], r["method"], r["gate"], ", ".join(r["verified_by"]), r["acceptance"],
-                     f"{src.get('kind', '-')}: {src.get('ref', '-')}" + (" (unconfirmed)" if src.get("confirmed") is False else ""),
+        cite = f"{src.get('kind', '-')}: {src.get('ref', '-')}"
+        if src.get("confirmed") is False:
+            cite += " (unconfirmed)"
+        rows.append((r["id"], r["method"], r["gate"], ", ".join(r["verified_by"]), r["acceptance"], cite,
                      r.get("text", "")))
     if md:
-        out = ["| Requirement | Method | Gate | Verified by | Acceptance | Source | Text |", "|---|---|---|---|---|---|---|"]
+        out = ["| Requirement | Method | Gate | Verified by | Acceptance | Source | Text |",
+               "|---|---|---|---|---|---|---|"]
         out += ["| " + " | ".join(str(c).replace("|", "\\|") for c in row) + " |" for row in rows]
         out += [f"| ~~{e['id']}~~ | excluded | | | | | {e.get('reason') or 'no reason'} |" for e in proj["excluded"]]
         return "\n".join(out)
@@ -569,8 +599,8 @@ def checks_markdown():
         L.append("")
     L += ["## Statuses", "",
           "| Status | Meaning |", "|---|---|",
-          "| VERIFIED | Every verifier ran, found no defect beyond the acceptance criterion and checked its whole scope "
-          "(unchecked items waived one by one by a person) |",
+          "| VERIFIED | Every verifier ran, found no defect beyond the acceptance criterion and checked its whole "
+          "scope (unchecked items waived one by one by a person) |",
           "| FAILED | A verifier found a defect that is not waived |",
           "| NOT_VERIFIABLE | A verifier ran but could not decide: missing input, partial coverage, unconfirmed "
           "reviewer claim |",

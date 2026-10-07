@@ -6,6 +6,8 @@ from pathlib import Path
 
 import yaml
 
+from . import __version__
+
 PKG = Path(__file__).resolve().parent
 DATA = PKG / "data"
 DIRNAME = os.path.join("verification", "pcb")
@@ -31,6 +33,10 @@ def _default_kicad_cli():
 
 
 KICAD_CLI = _default_kicad_cli()
+
+
+def kicad_cli_found():
+    return bool(shutil.which(KICAD_CLI)) or Path(KICAD_CLI).is_file()
 SKIP_DIRS = {".history", "verification", "backups", ".git", "node_modules", ".venv", "venv",
              "__pycache__", "hwverify"}
 KICAD_SUFFIXES = {".kicad_pro", ".kicad_pcb", ".kicad_sch"}
@@ -171,7 +177,6 @@ def init_project(root, ci=None):
             if dst.name == "project.yaml":
                 dst.write_text(dst.read_text(encoding="utf-8").replace("{{name}}", root.name), encoding="utf-8")
     if ci == "github":
-        from . import __version__
         repo = next((d for d in [root, *root.parents] if (d / ".git").exists()), root)
         wf = repo / ".github" / "workflows" / "hw-verify.yml"
         if not wf.exists():

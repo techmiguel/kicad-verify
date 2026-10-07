@@ -6,7 +6,7 @@ import tempfile
 from pathlib import Path
 
 from .. import config
-from ..report import FAIL, NOT_VERIFIABLE, PASS, WARN, Result, not_verifiable
+from ..report import FAIL, NOT_VERIFIABLE, PASS, WARN, Result, count, not_verifiable
 from ..waivers import vkey
 
 PARITY_TYPES = {
@@ -69,7 +69,7 @@ def erc(sch, label, evidence_dir=None):
         kept = _keep(out, evidence_dir, f"{label}.erc.json")
     raw = [v for s in data.get("sheets", []) for v in s.get("violations", [])]
     vs = [_violation(v, f"erc:{label}") for v in raw]
-    return [Result(cid, _status(raw), f"{label}: {len(raw)} ERC violations", violations=vs,
+    return [Result(cid, _status(raw), f"{label}: {count(len(raw), 'ERC violation')}", violations=vs,
                    evidence=[str(sch)] + ([kept] if kept else []))]
 
 
@@ -88,19 +88,14 @@ def drc(pcb, label, evidence_dir=None):
             return [_tool_failed(c, label, "DRC produced no report") for c in ("PCB-DRC-001", "PCB-CONN-001")]
         data = json.loads(out.read_text(encoding="utf-8"))
         kept = _keep(out, evidence_dir, f"{label}.drc.json")
-    groups = {"violations": [], "unconnected_items": [], "schematic_parity": []}
-    for k in groups:
-        groups[k] = data.get(k, [])
-    parity = list(groups["schematic_parity"]) + [
-        v for v in groups["violations"] if v.get("type") in PARITY_TYPES]
-    drc_raw = [v for v in groups["violations"] if v.get("type") not in PARITY_TYPES]
-    unconn = groups["unconnected_items"]
+    drc_raw = [v for v in data.get("violations", []) if v.get("type") not in PARITY_TYPES]
+    unconn = data.get("unconnected_items", [])
     res = []
     vs = [_violation(v, f"drc:{label}") for v in drc_raw]
-    res.append(Result("PCB-DRC-001", _status(drc_raw), f"{label}: {len(drc_raw)} DRC violations",
+    res.append(Result("PCB-DRC-001", _status(drc_raw), f"{label}: {count(len(drc_raw), 'DRC violation')}",
                       violations=vs, evidence=[str(pcb)] + ([kept] if kept else [])))
     vs = [_violation(v, f"unconn:{label}") for v in unconn]
     res.append(Result("PCB-CONN-001", FAIL if unconn else PASS,
-                      f"{label}: {len(unconn)} unrouted connections", violations=vs,
+                      f"{label}: {count(len(unconn), 'unrouted connection')}", violations=vs,
                       evidence=[str(pcb)] + ([kept] if kept else [])))
     return res

@@ -73,8 +73,9 @@ def markdown(rep, gate=None, limit=15):
             for u in ((v.get("coverage") or {}).get("unchecked") or [])[:limit]:
                 L.append(f"- not checked `{u['key']}`: {_esc(u['text'])}")
             for d in v.get("deviations", [])[:limit]:
+                expires = f", expires {d['expires']}" if d.get("expires") else ""
                 L.append(f"- waived `{d['key']}` ({d['kind']}): {_esc(d['text'])}. Reason: {_esc(d['reason'])} "
-                         f"({d.get('by') or 'unnamed'}, {d['date']}{', expires ' + d['expires'] if d.get('expires') else ''})")
+                         f"({d.get('by') or 'unnamed'}, {d['date']}{expires})")
             if v.get("limits"):
                 L.append(f"- does not cover: {_esc(v['limits'])}")
             L.append("")
@@ -102,7 +103,8 @@ def markdown(rep, gate=None, limit=15):
               + (f" git {kv['git']['commit'][:12]}{' (dirty)' if kv['git']['dirty'] else ''}" if kv.get("git") else "")
               + " |",
               f"| kicad-cli | {t['kicad-cli']['version']} |",
-              f"| kicad-happy | {t['kicad-happy']['pinned']} {(t['kicad-happy'].get('commit') or 'not installed')[:12]} |",
+              f"| kicad-happy | {t['kicad-happy']['pinned']} "
+              f"{(t['kicad-happy'].get('commit') or 'not installed')[:12]} |",
               f"| Python / platform | {t['python']} / {t['platform']} |"]
         rp = rep.get("review_provenance")
         if rp:
@@ -134,7 +136,8 @@ def junit(rep):
                            failures=str(sum(v["status"] == FAILED for v in vs)),
                            skipped=str(sum(v["status"] in (NOT_RUN, NOT_VERIFIABLE) for v in vs)), errors="0")
         for v in vs:
-            tc = ET.SubElement(ts, "testcase", classname=f"{rep['project']}.{method}", name=f"{v['id']} {v['text']}"[:200])
+            tc = ET.SubElement(ts, "testcase", classname=f"{rep['project']}.{method}",
+                               name=f"{v['id']} {v['text']}"[:200])
             msg = f"{v['status']}: {v['reason']}"
             if v["status"] == FAILED:
                 f = ET.SubElement(tc, "failure", message=msg[:500], type=FAILED)

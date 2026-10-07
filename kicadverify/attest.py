@@ -142,7 +142,8 @@ def check(path, root, allowed_signers=None, identity=None):
         "design_hash": now["design_hash"] == pred["design_hash"],
         "policy": now["policy"]["digest"] == pred["policy"]["digest"],
         "intent": now["intent"]["digest"] == pred["intent"]["digest"],
-        "kicad-verify code": now["tools"]["kicad-verify"]["code_digest"] == pred["tools"]["kicad-verify"]["code_digest"],
+        "kicad-verify code": (now["tools"]["kicad-verify"]["code_digest"]
+                              == pred["tools"]["kicad-verify"]["code_digest"]),
         "kicad-cli": now["tools"]["kicad-cli"]["version"] == pred["tools"]["kicad-cli"]["version"],
     }
     out["values"] = {

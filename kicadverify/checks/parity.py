@@ -4,7 +4,7 @@ Own implementation because `kicad-cli pcb drc --schematic-parity` hangs (>10 min
 with KiCad 10.0.5 on at least one real project, while the netlist export takes ~1 s.
 """
 from ..netlist import norm_net, same_value
-from ..report import FAIL, PASS, WARN, Result, coverage, not_verifiable
+from ..report import FAIL, PASS, WARN, Result, count, coverage, not_verifiable
 from ..waivers import vkey
 
 PCB_ONLY = ("MountingHole", "Fiducial", "TestPoint", "NetTie", "Logo")
@@ -51,18 +51,19 @@ def run(board, nl, label):
         extra = sorted({p["number"] for p in fp["pads"] if p["type"] != "np_thru_hole"} - sym_pins - NON_ELECTRICAL_PAD)
         unused = [n for n in extra if not padnet.get(n)]
         if unused and sym_pins:
-            pinmap.append(f"{ref}: footprint pads {', '.join(unused)} have no symbol pin (wrong footprint or pin numbering?)")
+            pinmap.append(f"{ref}: footprint pads {', '.join(unused)} have no symbol pin "
+                          "(wrong footprint or pin numbering?)")
     for ref, fp in pcb.items():
         pcb_only = ("board_only" in fp["attr"] or fp["name"].split(":")[-1].startswith(PCB_ONLY)
                     or ("exclude_from_bom" in fp["attr"] and not any(p["net"] for p in fp["pads"])))
         if ref not in comps and not ref.startswith("#") and not pcb_only:
             diffs.append(f"{ref}: on the PCB, not in the schematic")
     return [
-        Result("PCB-PARITY-001", FAIL if diffs else PASS, f"{label}: {len(diffs)} schematic/PCB differences",
+        Result("PCB-PARITY-001", FAIL if diffs else PASS, f"{label}: {count(len(diffs), 'schematic/PCB difference')}",
                violations=[{"key": vkey("parity", d), "text": d} for d in diffs],
                coverage=coverage("schematic components", n_comp)),
         Result("PCB-PINMAP-001", FAIL if any("has no pad" in p for p in pinmap) else WARN if pinmap else PASS,
-               f"{label}: {len(pinmap)} symbol-pin/footprint-pad mismatches",
+               f"{label}: {count(len(pinmap), 'symbol-pin/footprint-pad mismatch')}",
                violations=[{"key": vkey("pinmap", p), "text": p} for p in pinmap],
                coverage=coverage("symbol pins", n_pins)),
     ]
