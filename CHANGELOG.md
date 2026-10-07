@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+- PCB-PARITY-001 compares component values between schematic and PCB. A value changed in only one of them (the board would be built with a value the circuit checks never saw) is FAILED and blocks every gate; each difference can be waived with a reason. Values are compared as numbers when both parse (`4k7` = `4.7k` = `4700`, `100n` = `100nF`, `220` = `220Ω`), the rest of the value (`10V`, `X7R`) as text ignoring case and spacing. Found by testing on smartRele: R9 changed to 330 Ω in the schematic alone passed the fab gate with only a kicad-happy warning.
+- The requirement text of PCB-PARITY-001 now names values, so the policy digest changes: sign-offs made under 0.4.0 or earlier must be renewed.
+- Seeded defect `value_R9_schematic_only` added to the bank (23 defects with the 0.4.0 isolation cases).
+
 ## 0.4.0 — 2026-10-06
 - ISO-SEP-001: copper separation across declared isolation barriers (mains to low voltage, line to neutral...), selected by net class (from the `.kicad_pro` patterns) or nets, measured per copper layer over tracks, vias, pads and zone fills, independently of the board's DRC rules. A shortfall on a board with cutouts or slots is NOT_VERIFIABLE (creepage around slots is not computed). The required distances and their sources are declared by the project; none are shipped. Breaking: projects without a hazardous voltage exclude the requirement with that reason, otherwise it is NOT_VERIFIABLE at the fab gate.
 - Seeded bank: ground copper 2.8 mm from mains with and without the designer's mains rule in `.kicad_dru`; without it the DRC requirement stays VERIFIED and only ISO-SEP-001 fails. 20 of 22 defects block the fab gate.

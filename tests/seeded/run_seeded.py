@@ -157,6 +157,7 @@ MUTATIONS = {
     "pcb_pin_swap_U1": ({PCB: fp_swap_pad_nets("U1", "2", "3")}, "PCB-PARITY-001", "layout"),
     "footprint_swapped": ({PCB: lambda t: t.replace('"Package_TO_SOT_SMD:SOT-23"', '"Package_TO_SOT_SMD:SOT-23-5"', 1)},
                           "PCB-PARITY-001", "layout"),
+    "value_R9_schematic_only": (sch_value("R9", "220", "330", also_pcb=False), "PCB-PARITY-001", "layout"),
     "pinmap_pad_renumbered": ({PCB: lambda t: fp_edit(t, "U1", lambda b: b.replace('(pad "3"', '(pad "4"', 1))},
                               "PCB-PINMAP-001", "layout"),
     "track_in_MH1_keepout": ({PCB: add_segment}, "PCB-KEEPOUT-001", "layout"),

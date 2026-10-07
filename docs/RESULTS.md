@@ -4,7 +4,7 @@ Fixture: [smartRele](https://github.com/techmiguel/smartRele) at commit `6053b84
 
 A layer catches a defect when it reports a new FAIL/WARN for it that the baseline did not have. For the reviewer, the finding must name the modified component (or value) and be new or more severe than on the baseline.
 
-**Deterministic checks: 20/22** defects caught. **Fab gate: 20/22** defects block it (the two that do not are judgement calls with no rule: they are the reviewer's job, at the release gate).
+**Deterministic checks: 21/23** defects caught. **Fab gate: 21/23** defects block it (the two that do not are judgement calls with no rule: they are the reviewer's job, at the release gate).
 
 Requirement-level run: the fixture is configured with the reference verification set in [tests/reference/rele](../tests/reference/rele) (fab profile, pins from the datasheets, mounting holes, approved footprints, waivers with reasons, three project assertions). On the unmodified board the fab gate passes; requirements FAILED at baseline: PCB-MODEL-001 (release gate only). "Requirements newly FAILED" lists the requirements whose verdict changed to FAILED with the defect.
 
@@ -18,6 +18,7 @@ Requirement-level run: the fixture is configured with the reference verification
 | pinmap_pad_renumbered | PCB-PINMAP-001 | caught | blocked | PCB-PINMAP-001, PCB-PINS-001 | PCB-PINS-001 |
 | gnd_track_near_mains | ISO-SEP-001 | caught | blocked | FAB-STALE-001, ISO-SEP-001, PCB-DRC-001 | FAB-STALE-001, PCB-DRC-001 |
 | gnd_near_mains_no_dru_rule | ISO-SEP-001 | caught | blocked | FAB-STALE-001, ISO-SEP-001 | FAB-STALE-001, PCB-DRC-001 |
+| value_R9_schematic_only | PCB-PARITY-001 | caught | blocked | PCB-PARITY-001 | KH-XV-002 |
 
 ## Fabrication outputs
 

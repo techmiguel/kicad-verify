@@ -11,7 +11,7 @@ A requirement is VERIFIED only when every verifier behind it ran, found nothing 
 | PCB-ERC-001 | full | .kicad_sch | Unconnected pins, pin-type conflicts, missing power flags | Wrong symbol pinout vs the datasheet; component values; function |
 | PCB-DRC-001 | full | .kicad_pcb, .kicad_pro, .kicad_dru | Clearances, drill sizes, overlaps, silkscreen and library drift, against the rules stored in the board | Whether those rules are the right ones for the fab or the application (FAB-RULES-001 checks the fab side; mains isolation is a project requirement); signal integrity; thermal |
 | PCB-CONN-001 | full | .kicad_pcb | Connections in the board ratsnest that are not routed | Whether the netlist is the intended one |
-| PCB-PARITY-001 | fast, full | .kicad_sch, .kicad_pcb | Same references, footprints and net per pin in schematic and PCB | Errors present in both. PCB-only parts (MountingHole, Fiducial, TestPoint, board_only) are ignored |
+| PCB-PARITY-001 | fast, full | .kicad_sch, .kicad_pcb | Same references, values, footprints and net per pin in schematic and PCB (values compared as numbers when both parse, so 4k7 = 4.7k = 4700 and 100n = 100nF) | Errors present in both. Fields other than the value (MPN, voltage or tolerance fields). PCB-only parts (MountingHole, Fiducial, TestPoint, board_only) are ignored |
 | PCB-PINMAP-001 | fast, full | .kicad_sch, .kicad_pcb | Symbol pins without a pad; electrical pads without a symbol pin (wrong package or numbering) | A pin number that exists in both but means something else (MOD-PINOUT-001) |
 
 ## Board checks (direct `.kicad_pcb` parse)

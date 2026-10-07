@@ -1,7 +1,7 @@
 """Unit tests that need neither KiCad nor network."""
 
 from kicadverify import netlist, review, sexp, waivers
-from kicadverify.checks import circuit
+from kicadverify.checks import circuit, parity
 from kicadverify.report import FAIL, PASS, Result
 
 
@@ -17,6 +17,33 @@ def test_parse_value():
     assert netlist.parse_value("220") == 220
     assert netlist.parse_value("10M") == 10e6
     assert netlist.parse_value("R47") is None or abs(netlist.parse_value("R47") - 0.47) < 1e-9
+
+
+def test_same_value():
+    f = netlist.same_value
+    assert f("4k7", "4.7k") and f("4700", "4k7") and f("100n", "100nF") and f("220", "220Ω") and f("10K", "10k")
+    assert f("470uF 10V", "470uF  10v") and f("AMS1117-3.3", "AMS1117-3.3") and f("", "")
+    assert f("10k 1%", "10k 1 %") and f("100nF/50V", "100n 50V") and f("2k2", "2.2k") and f("1µF", "1uF")
+    assert not f("220", "330") and not f("1M", "1m") and not f("470uF 10V", "470uF 4V")
+    assert not f("AMS1117-3.3", "AMS1117-1.8") and not f("10k", "")
+
+
+def test_parity_compares_values():
+    pins = {"1": {"name": "", "type": "passive"}, "2": {"name": "", "type": "passive"}}
+    nl = {"components": {"R9": {"value": "220", "footprint": "R:R_0603", "pins": pins},
+                         "R1": {"value": "10k", "footprint": "R:R_0603", "pins": pins}},
+          "pin_net": {("R9", "1"): "A", ("R9", "2"): "B", ("R1", "1"): "A", ("R1", "2"): "C"}}
+
+    def board(r9, r1):
+        fp = lambda ref, val, n2: {"ref": ref, "name": "R:R_0603", "value": val, "attr": [],
+                                   "pads": [{"number": "1", "net": "A", "type": "smd"},
+                                            {"number": "2", "net": n2, "type": "smd"}]}
+        return {"footprints": [fp("R9", r9, "B"), fp("R1", r1, "C")]}
+
+    ok = parity.run(board("220Ω", "10K"), nl, "t")[0]
+    assert ok.status == PASS, ok.violations
+    bad = parity.run(board("330", "10k"), nl, "t")[0]
+    assert bad.status == FAIL and [v["text"] for v in bad.violations] == ["R9: value 330 on PCB vs 220 in schematic"]
 
 
 def test_rated_voltage():
