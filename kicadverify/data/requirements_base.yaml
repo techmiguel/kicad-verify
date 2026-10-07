@@ -52,6 +52,10 @@ requirements:
   - id: PCB-DRC-001
     text: "DRC has no errors against the board design rules"
     source: {kind: tool, ref: "KiCad design rules check (kicad-cli pcb drc --severity-all --refill-zones)"}
+  - id: PCB-HYGIENE-001
+    text: "Symbols and footprints match their installed libraries and wires end on the grid (advisory)"
+    gate: none
+    source: {kind: tool, ref: "KiCad ERC/DRC library and grid checks; they depend on the library tables of the machine that runs them, not on the design that is built"}
   - id: PCB-CONN-001
     text: "Every schematic connection is routed"
     source: {kind: tool, ref: "KiCad DRC unconnected items"}

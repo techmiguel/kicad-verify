@@ -17,8 +17,15 @@ checks:
     layer: kicad
     modes: [full]
     inputs: [.kicad_pcb, .kicad_pro, .kicad_dru]
-    covers: Clearances, drill sizes, overlaps, silkscreen and library drift, against the rules stored in the board
+    covers: Clearances, drill sizes, overlaps and silkscreen, against the rules stored in the board (library drift is PCB-HYGIENE-001)
     limits: Whether those rules are the right ones for the fab or the application (FAB-RULES-001 checks the fab side; mains isolation is a project requirement); signal integrity; thermal
+  PCB-HYGIENE-001:
+    title: Library and drawing hygiene (kicad-cli ERC/DRC, advisory)
+    layer: kicad
+    modes: [full]
+    inputs: [.kicad_sch, .kicad_pcb, symbol and footprint library tables]
+    covers: Symbols and footprints missing from the installed libraries or differing from them, wire ends off the connection grid; reported, never gating
+    limits: Depends on the libraries installed where the check runs (a CI without the project's libraries reports every part); the design is checked on its embedded copies by PCB-ERC-001 and PCB-DRC-001
   PCB-CONN-001:
     title: Unrouted connections (kicad-cli pcb drc)
     layer: kicad

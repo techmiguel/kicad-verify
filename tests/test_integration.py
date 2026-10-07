@@ -67,8 +67,11 @@ def test_reference_board_passes_fab_gate(board):
                 "FAB-DRILL-001", "FAB-CPL-001", "PRJ-PWR-001", "PRJ-MAINS-001"):
         assert st[rid] == "VERIFIED", (rid, st[rid])
     assert st["MOD-PINOUT-001"] == "NOT_RUN" and not rep["verification"]["gates"]["release"]["pass"]
-    erc = next(v for v in rep["verification"]["requirements"] if v["id"] == "PCB-ERC-001")
-    assert erc["deviations"] and all(d["reason"] for d in erc["deviations"])
+    # library drift and off-grid ends are reported apart and need no waiver; ERC itself is clean
+    assert st["PCB-ERC-001"] == "VERIFIED"
+    hyg = next(r for r in rep["results"] if r["check"] == "PCB-HYGIENE-001" and "ERC" in r["detail"])
+    assert hyg["status"] == "WARN" and hyg["violations"]
+    assert not any(r["check"] == "WAIVERS" for r in rep["results"])  # no stale waiver left
     assert (board / "verification" / "pcb" / "reports" / "evidence" / "rele-esp12f.drc.json").exists()
     assert cli.main(["verify", str(board), "--gate", "fab", "--fast"]) == 1  # fast mode cannot clear fab
 

@@ -103,11 +103,13 @@
       "deterministic": true,
       "deterministic_checks": [
         "FAB-DRILL-001",
+        "FAB-STALE-001",
         "PCB-HOLE-001",
         "PCB-KEEPOUT-001"
       ],
       "requirements_failed": [
         "FAB-DRILL-001",
+        "FAB-STALE-001",
         "PCB-HOLE-001",
         "PCB-KEEPOUT-001"
       ],
@@ -134,10 +136,12 @@
       "applied": true,
       "deterministic": true,
       "deterministic_checks": [
-        "FAB-CPL-001"
+        "FAB-CPL-001",
+        "PCB-ERC-001"
       ],
       "requirements_failed": [
-        "FAB-CPL-001"
+        "FAB-CPL-001",
+        "PCB-ERC-001"
       ],
       "fab_gate_blocked": true
     },
@@ -148,10 +152,12 @@
       "applied": true,
       "deterministic": true,
       "deterministic_checks": [
-        "FAB-BOM-001"
+        "FAB-BOM-001",
+        "PCB-ERC-001"
       ],
       "requirements_failed": [
-        "FAB-BOM-001"
+        "FAB-BOM-001",
+        "PCB-ERC-001"
       ],
       "fab_gate_blocked": true
     },
@@ -166,7 +172,7 @@
         "CIR-POL-001",
         "PCB-CONN-001",
         "PCB-DRC-001",
-        "PCB-PARITY-001"
+        "PCB-ERC-001"
       ],
       "reviewer_opus": [
         "FAIL",
@@ -182,7 +188,7 @@
         "CIR-POL-001",
         "PCB-CONN-001",
         "PCB-DRC-001",
-        "PCB-PARITY-001"
+        "PCB-ERC-001"
       ],
       "fab_gate_blocked": true
     },
@@ -195,7 +201,8 @@
       "deterministic_checks": [
         "CIR-POL-001",
         "PCB-CONN-001",
-        "PCB-DRC-001"
+        "PCB-DRC-001",
+        "PCB-ERC-001"
       ],
       "reviewer_opus": [
         "FAIL",
@@ -210,7 +217,8 @@
       "requirements_failed": [
         "CIR-POL-001",
         "PCB-CONN-001",
-        "PCB-DRC-001"
+        "PCB-DRC-001",
+        "PCB-ERC-001"
       ],
       "fab_gate_blocked": true
     },
@@ -221,7 +229,8 @@
       "applied": true,
       "deterministic": true,
       "deterministic_checks": [
-        "CIR-REG-001"
+        "CIR-REG-001",
+        "PCB-ERC-001"
       ],
       "reviewer_opus": [
         "FAIL",
@@ -234,7 +243,8 @@
       ],
       "reviewer_sonnet_cost": 0.1530112,
       "requirements_failed": [
-        "CIR-REG-001"
+        "CIR-REG-001",
+        "PCB-ERC-001"
       ],
       "fab_gate_blocked": true
     },
@@ -245,7 +255,8 @@
       "applied": true,
       "deterministic": true,
       "deterministic_checks": [
-        "CIR-LED-001"
+        "CIR-LED-001",
+        "PCB-ERC-001"
       ],
       "reviewer_opus": [
         "FAIL",
@@ -258,7 +269,8 @@
       ],
       "reviewer_sonnet_cost": 0.26383080000000003,
       "requirements_failed": [
-        "CIR-LED-001"
+        "CIR-LED-001",
+        "PCB-ERC-001"
       ],
       "fab_gate_blocked": true
     },
@@ -269,7 +281,8 @@
       "applied": true,
       "deterministic": true,
       "deterministic_checks": [
-        "CIR-BJT-001"
+        "CIR-BJT-001",
+        "PCB-ERC-001"
       ],
       "reviewer_opus": [
         "FAIL",
@@ -282,7 +295,8 @@
       ],
       "reviewer_sonnet_cost": 0.24265440000000005,
       "requirements_failed": [
-        "CIR-BJT-001"
+        "CIR-BJT-001",
+        "PCB-ERC-001"
       ],
       "fab_gate_blocked": true
     },
@@ -293,7 +307,8 @@
       "applied": true,
       "deterministic": true,
       "deterministic_checks": [
-        "KH-VD-001"
+        "KH-VD-001",
+        "PCB-ERC-001"
       ],
       "reviewer_opus": [
         "FAIL",
@@ -306,7 +321,8 @@
       ],
       "reviewer_sonnet_cost": 0.2115184,
       "requirements_failed": [
-        "KH-*"
+        "KH-*",
+        "PCB-ERC-001"
       ],
       "fab_gate_blocked": true
     },
@@ -316,7 +332,9 @@
       "expected": "MOD-VALUE-001",
       "applied": true,
       "deterministic": false,
-      "deterministic_checks": [],
+      "deterministic_checks": [
+        "PCB-ERC-001"
+      ],
       "reviewer_opus": [
         "FAIL",
         "MOD-STRAP-001"
@@ -327,8 +345,10 @@
         "MOD-STRAP-001"
       ],
       "reviewer_sonnet_cost": 0.23732840000000002,
-      "requirements_failed": [],
-      "fab_gate_blocked": false
+      "requirements_failed": [
+        "PCB-ERC-001"
+      ],
+      "fab_gate_blocked": true
     },
     {
       "mutation": "fuse_F1_50A",
@@ -336,7 +356,9 @@
       "expected": "MOD-PROT-001",
       "applied": true,
       "deterministic": false,
-      "deterministic_checks": [],
+      "deterministic_checks": [
+        "PCB-ERC-001"
+      ],
       "reviewer_opus": [
         "FAIL",
         "MOD-PROT-001"
@@ -347,8 +369,10 @@
         "MOD-PROT-001"
       ],
       "reviewer_sonnet_cost": 0.27991520000000003,
-      "requirements_failed": [],
-      "fab_gate_blocked": false
+      "requirements_failed": [
+        "PCB-ERC-001"
+      ],
+      "fab_gate_blocked": true
     },
     {
       "mutation": "pinmap_pad_renumbered",
@@ -373,10 +397,12 @@
       "applied": true,
       "deterministic": true,
       "deterministic_checks": [
-        "FAB-RULES-001"
+        "FAB-RULES-001",
+        "PCB-ERC-001"
       ],
       "requirements_failed": [
-        "FAB-RULES-001"
+        "FAB-RULES-001",
+        "PCB-ERC-001"
       ],
       "fab_gate_blocked": true
     },
@@ -390,11 +416,13 @@
         "FAB-DFM-001",
         "KH-CC-002",
         "KH-DFM-001",
-        "PCB-DRC-001"
+        "PCB-DRC-001",
+        "PCB-ERC-001"
       ],
       "requirements_failed": [
         "FAB-DFM-001",
-        "PCB-DRC-001"
+        "PCB-DRC-001",
+        "PCB-ERC-001"
       ],
       "fab_gate_blocked": true
     },
@@ -407,12 +435,14 @@
       "deterministic_checks": [
         "FAB-STALE-001",
         "ISO-SEP-001",
-        "PCB-DRC-001"
+        "PCB-DRC-001",
+        "PCB-ERC-001"
       ],
       "requirements_failed": [
         "FAB-STALE-001",
         "ISO-SEP-001",
-        "PCB-DRC-001"
+        "PCB-DRC-001",
+        "PCB-ERC-001"
       ],
       "fab_gate_blocked": true
     },
@@ -425,11 +455,13 @@
       "deterministic_checks": [
         "FAB-STALE-001",
         "ISO-SEP-001",
-        "PCB-DRC-001"
+        "PCB-DRC-001",
+        "PCB-ERC-001"
       ],
       "requirements_failed": [
         "FAB-STALE-001",
-        "ISO-SEP-001"
+        "ISO-SEP-001",
+        "PCB-ERC-001"
       ],
       "fab_gate_blocked": true
     },
