@@ -58,8 +58,18 @@ def _from_pro(path, out, notes):
         _from_dru(dru, out, notes)
 
 
+KICAD6_PCB = 20211014  # from this file version on, the board rules live in the .kicad_pro
+
+
 def _from_pcb(path, out, notes):
     tree = sexp.parse(Path(path).read_text(encoding="utf-8"))
+    version = sexp.num((sexp.child(tree, "version") or ["", "0"])[1], 0)
+    if version >= KICAD6_PCB:
+        pro = Path(path).with_suffix(".kicad_pro")
+        if not pro.is_file():
+            raise ValueError(f"{Path(path).name} is a KiCad 6+ board: its rules are in {pro.name}, which is "
+                             "not next to it; pass the .kicad_pro")
+        return _from_pro(pro, out, notes)
     setup = sexp.child(tree, "setup") or []
 
     def num(name):

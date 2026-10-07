@@ -625,8 +625,26 @@ def test_one_board_per_verification(tmp_path, capsys):
     assert cli.main(["init", str(repo)]) == 2
     assert "kicad-verify reviews one board at a time" in capsys.readouterr().err
     assert not (repo / config.DIRNAME).exists()
-    assert cli.main(["init", str(repo), "--board", str(repo / "main" / "main.kicad_pro")]) == 0
+    # --board as the hint lists it: relative to the project root, whatever the current directory
+    assert cli.main(["init", str(repo), "--board", "main/main.kicad_pro"]) == 0
     assert [k["label"] for k in config.discover(repo)] == ["main"]
+    capsys.readouterr()
+    # verify given the other board's .kicad_pro: refused, not silently the recorded board
+    assert cli.main(["verify", str(repo / "daughter" / "daughter.kicad_pro"), "--fast"]) == 2
+    assert "is about main.kicad_pro, not daughter.kicad_pro" in capsys.readouterr().err
+    # run from the other board's folder: refused too
+    assert cli.main(["verify", str(repo / "daughter"), "--fast"]) == 2
+    assert "holds daughter.kicad_pro" in capsys.readouterr().err
+    # init --board on an initialised project changes the board
+    assert cli.main(["init", str(repo), "--board", "daughter/daughter.kicad_pro"]) == 0
+    assert [k["label"] for k in config.discover(repo)] == ["daughter"]
+    assert cli.main(["init", str(repo), "--board", "main/main.kicad_pro"]) == 0
+    # each board's outputs: only main's are checked for main
+    for b in ("main", "daughter"):
+        (repo / b / "gerbers").mkdir()
+        (repo / b / "gerbers" / f"{b}-F_Cu.gbr").write_text("%TF.FileFunction,Copper,L1,Top*%\n")
+    g, _, _, _ = fab.find_outputs(repo, {})
+    assert [x.name for x in g] == ["main-F_Cu.gbr"]
     assert sorted(f.name for f in config.design_files(repo)) == [
         "main.kicad_pcb", "main.kicad_pro", "main.kicad_sch", "power.kicad_sch"]
     h = config.design_hash(repo)

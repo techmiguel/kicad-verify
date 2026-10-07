@@ -35,11 +35,23 @@ def _fab_member(name):
     return _is_gerber(name) or Path(name).suffix.lower() == ".drl"
 
 
-def archives(root, params):
-    """Zip archives holding Gerber or drill files (what is uploaded to the fab)."""
+def output_base(root, params):
+    """Where fabrication outputs are looked for: params.fab.dir, else the chosen board's folder when the
+    project root holds several boards (another board's Gerbers are not this one's), else the root."""
     fab = params.get("fab") or {}
     root = Path(root)
-    base = root / fab["dir"] if fab.get("dir") else root
+    if fab.get("dir"):
+        return root / fab["dir"]
+    boards = config.discover(root)
+    if len(boards) == 1 and len(config.candidates(root)) > 1:
+        return boards[0]["pro"].parent
+    return root
+
+
+def archives(root, params):
+    """Zip archives holding Gerber or drill files (what is uploaded to the fab)."""
+    root = Path(root)
+    base = output_base(root, params)
     out = []
     for f in walk(base, 4):
         if f.suffix.lower() == ".zip":
@@ -83,14 +95,17 @@ def detect_outside(root):
     repo = next((d for d in [root, *root.parents] if (d / ".git").exists()), root.parent)
     # only outputs named after this board (KiCad names them <board>-F_Cu.gbr): a repository with
     # several boards keeps the others' outputs next to this one's
-    stems = [f.stem.lower() for f in root.glob("*.kicad_pcb")]
+    boards = config.discover(root)
+    stems = [k["label"].lower() for k in boards] if len(boards) == 1 else \
+        [f.stem.lower() for f in root.glob("*.kicad_pcb")]
+    own = boards[0]["pro"].parent.resolve() if len(boards) == 1 else root
 
     def ours(name):
         return any(s in name.lower() for s in stems)
 
     counts, boms, cpls = Counter(), [], []
     for f in walk(repo, 6):
-        if root in f.parents:
+        if own in f.parents:
             continue
         s, n = f.suffix.lower(), f.name.lower()
         if _fab_member(f.name):
@@ -118,9 +133,9 @@ def detect_outside(root):
             continue  # found under the output folder anyway
         # the closest to the project folder, when one is clearly closest (tools/test/jlc_cpl_rotations.csv
         # elsewhere in the repository is not the placement file)
-        ranked = sorted(found, key=lambda f: len(Path(os.path.relpath(f, root)).parts))
-        if ranked and (len(ranked) == 1 or len(Path(os.path.relpath(ranked[0], root)).parts)
-                       < len(Path(os.path.relpath(ranked[1], root)).parts)):
+        ranked = sorted(found, key=lambda f: len(Path(os.path.relpath(f, own)).parts))
+        if ranked and (len(ranked) == 1 or len(Path(os.path.relpath(ranked[0], own)).parts)
+                       < len(Path(os.path.relpath(ranked[1], own)).parts)):
             out[key] = os.path.relpath(ranked[0], root)
     return {k: v.replace(os.sep, "/") for k, v in out.items()}
 
@@ -131,7 +146,7 @@ def find_outputs(root, params, unzip_to=None):
     fab = params.get("fab") or {}
     root = Path(root)
     gerbers, drills, boms, cpls = [], [], [], []
-    base = root / fab["dir"] if fab.get("dir") else root
+    base = output_base(root, params)
     files = list(walk(base, 4))
     if unzip_to:
         for zf in archives(root, params):

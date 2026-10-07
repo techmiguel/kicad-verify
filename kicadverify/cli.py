@@ -346,7 +346,11 @@ def main(argv=None):
         if f.suffix.lower() not in (".kicad_pro", ".kicad_pcb", ".kicad_dru") or not f.is_file():
             print(f"{f}: expected an existing .kicad_pro, .kicad_pcb or .kicad_dru", file=sys.stderr)
             return EXIT_CONFIG
-        prof, notes = fabimport.profile_from(f, a.name)
+        try:
+            prof, notes = fabimport.profile_from(f, a.name)
+        except ValueError as e:
+            print(e, file=sys.stderr)
+            return EXIT_CONFIG
         limits = [k for k in prof if k not in ("name", "source")]
         missing = [k for k in dfm.MEASURED if k not in limits]
         print("# paste under params.fab in verification/pcb/requirements.yaml; check the values against the fab\n"
@@ -368,25 +372,48 @@ def main(argv=None):
     if a.cmd == "check-attestation":
         return _check_attestation(a)
 
-    board = getattr(a, "board", None)
-    if str(a.path).lower().endswith(".kicad_pro"):  # `init path/to/board.kicad_pro` chooses the board
-        board = board or a.path
-        a.path = str(Path(a.path).parent)
-    root, initialised = config.find_root(a.path)
+    chosen = None
+    start = Path(a.path)
+    if str(a.path).lower().endswith(".kicad_pro"):  # `verify path/to/board.kicad_pro` names the board
+        chosen, start = start.resolve(), start.parent
+    root, initialised = config.find_root(start)
     if root is None:
         print("No KiCad project (.kicad_pro) found from", a.path, file=sys.stderr)
         return EXIT_NO_PROJECT
-    if a.cmd == "init" or not initialised:
-        if board and not Path(board).resolve().is_file():
-            print(f"--board {board}: no such .kicad_pro", file=sys.stderr)
+    if getattr(a, "board", None):  # as typed, or relative to the project root (as the hint lists them)
+        given = Path(a.board)
+        chosen = next((c.resolve() for c in (given, root / given) if c.is_file()), None)
+        if chosen is None or chosen.suffix.lower() != ".kicad_pro":
+            print(f"--board {a.board}: no such .kicad_pro (from {Path.cwd()} or {root})", file=sys.stderr)
             return EXIT_CONFIG
-        if not board and len(config.discover(root)) > 1 and not (root / config.DIRNAME / "project.yaml").exists():
+    if chosen is None and initialised and start.resolve() != root.resolve():
+        # run from inside another board's folder: say so instead of verifying the recorded board
+        here = sorted(start.resolve().glob("*.kicad_pro"))
+        current = [k["pro"].resolve() for k in config.discover(root)]
+        if here and not set(here) & set(current):
+            print(f"{start} holds {here[0].name}, but the verification in {root} is about "
+                  f"{', '.join(c.name for c in current) or 'another board'}. Verify that board on its own: "
+                  f"kicadverify init {start}", file=sys.stderr)
+            return EXIT_CONFIG
+    if a.cmd == "init" or not initialised:
+        if not chosen and len(config.discover(root)) > 1 and not (root / config.DIRNAME / "project.yaml").exists():
             print(_ambiguous(root), file=sys.stderr)
             return EXIT_CONFIG
-        created = config.init_project(root, ci=getattr(a, "ci", None), board=board)
+        existed = (root / config.DIRNAME / "project.yaml").exists()
+        created = config.init_project(root, ci=getattr(a, "ci", None), board=chosen)
         if a.cmd == "init":
+            if existed and chosen:
+                config.set_board(root, chosen)
+                print(f"Board: {os.path.relpath(chosen, root)} (verification/pcb/project.yaml)")
             print("\n".join(["Created:"] + [f"  {c}" for c in created]) if created else "Already initialised.")
             return 0
+    elif chosen:
+        current = [k["pro"].resolve() for k in config.discover(root)]
+        if current != [chosen]:
+            print(f"The verification in {root} is about {', '.join(c.name for c in current) or 'no board'}, not "
+                  f"{chosen.name}: `kicadverify init {root} --board {os.path.relpath(chosen, root)}` changes it",
+                  file=sys.stderr)
+            return EXIT_CONFIG
     proj = config.load_project(root)
     if a.cmd in ("verify", "attest", "review", "release", "interface", "datasheets") and not config.kicad_cli_found():
         print(f"kicad-cli not found ({config.KICAD_CLI}): ERC, DRC, the netlist and the Gerber re-plot cannot run, "
@@ -426,6 +453,9 @@ def main(argv=None):
         print(f"Signed {a.id} ({'FAIL' if a.fail else 'pass'}) for design {config.design_hash(root)[:12]} "
               f"under policy {provenance.policy(proj)['digest'][7:19]}")
         return 0
+    if a.cmd in ("datasheets", "interface") and len(config.discover(root)) > 1:
+        print(_ambiguous(root), file=sys.stderr)
+        return EXIT_CONFIG
     if a.cmd == "datasheets":
         from . import datasheets
         for k in config.discover(root):

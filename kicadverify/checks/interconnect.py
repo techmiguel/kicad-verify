@@ -41,12 +41,16 @@ DRIVERS = {"output", "power_out"}
 CROSSED = [{"TX", "RX"}, {"TXD", "RXD"}, {"TX", "RXD"}, {"TXD", "RX"}]
 
 
+MECHANICAL = re.compile(r"(MP|SH|S|EP|PAD|MH|MOUNT\w*|SHIELD\w*)\d*", re.I)
+
+
 def _electrical(comp):
-    """Pin numbers of a connector symbol that carry a signal (not mounting or shield pins)."""
+    """Pin numbers of a connector symbol that carry a signal: not mounting or shield pins, known by
+    their number (MP, SH...) or by their name (pin 5 named Shield on a shielded 4-pin connector)."""
     def key(p):
         return (0, int(p), p) if p.isdigit() else (1, 0, p)
-    return sorted((p for p in comp["pins"] if p not in NON_ELECTRICAL_PAD
-                   and not re.fullmatch(r"(MP|SH|S|EP|PAD)\d*", p, re.I)), key=key)
+    return sorted((p for p, info in comp["pins"].items() if p not in NON_ELECTRICAL_PAD
+                   and not MECHANICAL.fullmatch(p) and not MECHANICAL.fullmatch(info.get("name") or "")), key=key)
 
 
 def _pairs(a_pins, b_pins, mapping):
@@ -73,9 +77,9 @@ def _unconnected(net, nl, ref):
     return all(n["ref"] == ref for n in nl["nets"].get(net, []))
 
 
-GROUND_PIN = re.compile(r"^(GND|VSS|AGND|DGND|PGND|SGND|GNDA|GNDD|VSSA|VSSD|EP|PAD|EPAD|0V|V-)\d*$", re.I)
-SUPPLY_PIN = re.compile(r"^(VCC|VDD|VIN|VBAT|VBUS|VDDA|VDDIO|VCCA|VCCIO|AVDD|DVDD|V\+|VS|VM|PVIN|3V3|5V|VSYS)\w*$",
-                        re.I)
+GROUND_PIN = re.compile(r"^(GND|VSS|AGND|DGND|PGND|SGND|GNDA|GNDD|VSSA|VSSD|0V)\d*$", re.I)  # not V- or EP
+SUPPLY_PIN = re.compile(r"^(VCC|VDD|VIN|VBAT|VBUS|VDDA|VDDIO|VCCA|VCCIO|AVDD|DVDD|V\+|V-|VEE|VNEG|VS|VM|PVIN|3V3|5V|"
+                        r"VSYS)\w*$", re.I)
 SIGNAL_TYPES = {"input", "output", "bidirectional", "tri_state", "open_collector", "open_emitter"}
 # net names whose role is unambiguous, for boards whose nets carry only connector (passive) pins, as
 # carrier boards for modules do; matched on the last path component, whole words
@@ -99,8 +103,8 @@ def _role(net, nl, ref, volts):
              for n in power]
     if any(GROUND_PIN.match(x) for x in names):
         return "ground"
-    if any(SUPPLY_PIN.match(x) for x in names):
-        return "supply"
+    if any(SUPPLY_PIN.match(x) for x in names) or any((n.get("type") or "").startswith("power_out") for n in power):
+        return "supply"  # a supply pin, or a regulator output driving the net
     if not power and any((n.get("type") or "").split("+")[0] in SIGNAL_TYPES for n in nodes):
         return "signal"
     short = (net or "").rsplit("/", 1)[-1]
@@ -113,8 +117,8 @@ def _role(net, nl, ref, volts):
     return None
 
 
-def _driven(net, nl, ref):
-    return any(n["ref"] != ref and (n.get("type") or "").split("+")[0] in DRIVERS for n in nl["nets"].get(net, []))
+def _driven(net, nl, ref, kinds=DRIVERS):
+    return any(n["ref"] != ref and (n.get("type") or "").split("+")[0] in kinds for n in nl["nets"].get(net, []))
 
 
 def _auto(net):
@@ -170,11 +174,17 @@ def run(nl, root, label, params, cache_dir):
                          "text": f"{name}: no connector {mate_ref!r} on {mlabel}"})
             continue
         there = Circuit(mnl, mparams)
-        pairs, why = _pairs(_electrical(nl["components"][ref]), _electrical(mnl["components"][mate_ref]),
-                            link.get("mapping"))
+        a_pins, b_pins = _electrical(nl["components"][ref]), _electrical(mnl["components"][mate_ref])
+        pairs, why = _pairs(a_pins, b_pins, link.get("mapping"))
         if pairs is None:
             bad.append({"key": vkey(CID, name, "pins"), "text": f"{name}: {ref} and {mlabel}:{mate_ref}: {why}"})
             continue
+        missing = [f"{ref}.{a}" for a, _ in pairs if a not in a_pins] + \
+            [f"{mlabel}:{mate_ref}.{b}" for _, b in pairs if b not in b_pins]
+        if missing:  # a mistyped pin in a mapping table compares nothing: say so
+            bad.append({"key": vkey(CID, name, "map"),
+                        "text": f"{name}: the pin mapping names pins the connectors do not have: {', '.join(missing)}"})
+            pairs = [(a, b) for a, b in pairs if a in a_pins and b in b_pins]
         for a, b in pairs:
             pairs_total += 1
             na, nb = nl["pin_net"].get((ref, a)), mnl["pin_net"].get((mate_ref, b))
@@ -188,10 +198,13 @@ def run(nl, root, label, params, cache_dir):
                 continue
             va, vb = here.v.get(na), there.v.get(nb)
             da, db = _driven(na, nl, ref), _driven(nb, mnl, mate_ref)
+            # a rail fed by the other board's regulator (power output) is how boards share supplies:
+            # only a logic output against a rail is an error
+            sa, sb = _driven(na, nl, ref, {"output"}), _driven(nb, mnl, mate_ref, {"output"})
             ra, rb = _role(na, nl, ref, here.v), _role(nb, mnl, mate_ref, there.v)
             if va is not None and vb is not None and abs(va - vb) > 0.05:
                 bad.append({"key": vkey(CID, name, a, "v"), "text": f"{where}: {va:g} V against {vb:g} V"})
-            elif (va is not None and vb is None and db) or (vb is not None and va is None and da):
+            elif (va is not None and vb is None and sb) or (vb is not None and va is None and sa):
                 rail = f"{va:g} V" if va is not None else f"{vb:g} V"
                 bad.append({"key": vkey(CID, name, a, "rail"),
                             "text": f"{where}: a {rail} rail against a net driven by an output pin"})
@@ -200,8 +213,8 @@ def run(nl, root, label, params, cache_dir):
             elif da and db:
                 bad.append({"key": vkey(CID, name, a, "drive"),
                             "text": f"{where}: an output pin drives the net on each board"})
-            elif ra == rb == "ground" or (va is not None and vb is not None):
-                continue  # grounds named differently (GND, /BATneg) or equal known voltages: consistent
+            elif ra == rb and ra in ("ground", "supply") or (va is not None and vb is not None):
+                continue  # grounds or rails named differently (GND and /BATneg, +3V3 fed from /VREG)
             elif _names_differ(na, nb):
                 warn.append({"key": vkey(CID, name, a, "name"), "text": f"{where}: net names differ"})
     st = FAIL if bad else WARN if warn else PASS

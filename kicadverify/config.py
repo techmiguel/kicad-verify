@@ -224,6 +224,15 @@ def _write_detected_outputs(root, req_file):
                         + text[j:], encoding="utf-8")
 
 
+def set_board(root, pro):
+    """Records the board in verification/pcb/project.yaml (replacing a previous `board:`)."""
+    f = Path(root) / DIRNAME / "project.yaml"
+    rel = os.path.relpath(Path(pro).resolve(), Path(root).resolve()).replace("\\", "/")
+    lines = [ln for ln in f.read_text(encoding="utf-8").splitlines() if not ln.startswith("board:")]
+    lines.append(f"board: {rel}            # the board this verification is about")
+    f.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
 def init_project(root, ci=None, board=None):
     root = Path(root)
     vd = root / DIRNAME

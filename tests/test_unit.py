@@ -55,6 +55,7 @@ def test_net_voltage_from_name():
     f = circuit.net_voltage_from_name
     assert f("+3V3") == 3.3 and f("/+5V") == 5 and f("GND") == 0 and f("AGND") == 0
     assert f("VBUS") == 5 and f("+1V8_RF") == 1.8 and f("/RELAY") is None and f("Net-(D2-K)") is None
+    assert f("-12V") == -12 and f("/-5V") == -5 and f("-3V3") == -3.3  # read as positive before
 
 
 def test_fixed_regulator_vout():
@@ -322,6 +323,15 @@ def test_profile_from_fab_kicad_rules(tmp_path, capsys):
                    ' "min_copper_edge_clearance": 0.0, "min_through_hole_diameter": 0.2}}}}')
     prof, _ = fabimport.profile_from(pro)
     assert "min_copper_to_edge_mm" not in prof and prof["min_spacing_mm"] == 0.1
+    # a KiCad 6+ board keeps its rules in the .kicad_pro beside it
+    new_pcb = tmp_path / "fab.kicad_pcb"
+    new_pcb.write_text('(kicad_pcb (version 20240108) (generator "pcbnew"))')
+    assert fabimport.profile_from(new_pcb)[0]["min_spacing_mm"] == 0.1
+    lone = tmp_path / "lone" / "x.kicad_pcb"
+    lone.parent.mkdir()
+    lone.write_text('(kicad_pcb (version 20240108))')
+    assert cli.main(["profiles", "--from", str(lone)]) == 2
+    capsys.readouterr()
     assert cli.main(["profiles", "--from", str(pcb), "--name", "fab-4"]) == 0
     out = capsys.readouterr().out
     assert "name: fab-4" in out and "not in the file" in out and "min_copper_to_edge_mm" in out
@@ -416,3 +426,32 @@ def test_board_to_board_link_on_carrier_boards(tmp_path, monkeypatch):
     assert r.status == FAIL and [v["text"].rsplit(": ", 1)[-1] for v in r.violations] == [
         "a ground against a signal", "a ground against a signal", "a signal against a ground",
         "a signal against a ground"]
+
+
+def test_board_to_board_link_edge_cases(tmp_path, monkeypatch):
+    from kicadverify.checks import interconnect
+    (tmp_path / "m").mkdir()
+    for ext in (".kicad_pro", ".kicad_sch"):
+        (tmp_path / "m" / ("m" + ext)).write_text("{}")
+    # this board: +3V3 fed through J3 only; a shielded connector whose pin 5 is the shield; VNEG on an
+    # op-amp V- pin
+    here = _link_nl("J3", {"1": "+3V3", "2": "GND", "3": "/VNEG", "4": "/SIG", "5": "GND"},
+                    [("U1", "1", "+3V3", "power_in"), ("U1", "2", "GND", "power_in"), ("U2", "4", "/VNEG", "power_in"),
+                     ("U1", "3", "/SIG", "input")])
+    here["components"]["J3"]["pins"]["5"]["name"] = "Shield"
+    here["components"]["U2"]["pins"]["4"]["name"] = "V-"
+    # the mate supplies the rail from an adjustable regulator (power output, net name without a voltage)
+    mate = _link_nl("P1", {"1": "/VREG", "2": "GND", "3": "-12V", "4": "/SIG"},
+                    [("U5", "5", "/VREG", "power_out"), ("U5", "2", "GND", "power_in"), ("U6", "1", "-12V", "power_in"),
+                     ("U6", "2", "/SIG", "output")])
+    monkeypatch.setattr(interconnect.netlist, "load", lambda sch, cache=None: mate)
+    link = {"name": "m", "connector": "J3", "mate": {"board": "m/m.kicad_pro", "connector": "P1"}}
+    r = interconnect.run(here, tmp_path, "t", {"interconnects": [link]}, tmp_path)[0]
+    # 4 signal pins each (the shield is not one); the rail fed by a regulator, the negative rail on
+    # V- and a driven signal into an input are all correct
+    assert r.status == PASS, [v["text"] for v in r.violations]
+    assert r.coverage["total"] == 4
+    # a mapping table naming a pin the mate does not have
+    link["mapping"] = {1: 1, 2: 2, 3: 3, 4: 21}
+    r = interconnect.run(here, tmp_path, "t", {"interconnects": [link]}, tmp_path)[0]
+    assert r.status == FAIL and "pins the connectors do not have: m:P1.21" in r.violations[0]["text"]
