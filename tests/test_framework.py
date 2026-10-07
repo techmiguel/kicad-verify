@@ -9,7 +9,7 @@ import yaml
 
 import kicadverify
 from kicadverify import cli, config, manifest, outputs, report, requirements as rq, review, signoff, waivers
-from kicadverify.checks import assertions, board, dfm
+from kicadverify.checks import assertions, board, dfm, fab, happy, kicad_cli
 from kicadverify.report import (FAIL, FAILED, NOT_RUN, NOT_VERIFIABLE, PASS, SKIP, VERIFIED, WARN, Result,
                                 coverage, not_verifiable)
 
@@ -249,6 +249,118 @@ def test_dfm_rotated_pad_and_arc():
     assert arc[0] == pytest.approx((100, 102)) and arc[-1] == pytest.approx((102, 100))
     assert all(abs(((x - 102) ** 2 + (y - 102) ** 2) ** 0.5 - 2) < 1e-6 for x, y in arc)
     assert all(x <= 102 + 1e-9 and y <= 102 + 1e-9 for x, y in arc)  # the short way round
+
+
+SLOT_PCB = """(kicad_pcb (general (thickness 1.6))
+ (layers (0 "F.Cu" signal) (2 "B.Cu" signal) (25 "Edge.Cuts" user))
+ (footprint "USB:C" (layer "F.Cu") (at 10 20) (property "Reference" "J1")
+  (pad "SH" thru_hole oval (at 0 0) (size 1.0 2.1) (drill oval 0.6 1.7) (layers "*.Cu") (net "GND")))
+ (footprint "USB:C" (layer "F.Cu") (at 30 20 90) (property "Reference" "J2")
+  (pad "SH" thru_hole oval (at 0 0 90) (size 1.0 2.1) (drill oval 0.6 1.7) (layers "*.Cu") (net "GND")))
+ (via (at 11.0 20) (size 0.6) (drill 0.3) (net "GND"))
+ (via (at 9.1 20) (size 0.6) (drill 0.3) (net "GND"))
+ (via (at 30.3 21.0) (size 0.6) (drill 0.3) (net "GND"))
+ (gr_rect (start 0 0) (end 50 40) (layer "Edge.Cuts")))"""
+
+
+def test_dfm_slot_is_a_capsule(tmp_path):
+    f = tmp_path / "s.kicad_pcb"
+    f.write_text(SLOT_PCB, encoding="utf-8")
+    r = dfm.geometry(board.load(f), "t", PROFILE)[0]
+    h2h = sorted(v["text"] for v in r.violations if "hole to hole" in v["text"])
+    # 0.6 x 1.7 slot: a via 1.0 mm from its centre across the slot is 0.55 mm away (a circle of the
+    # slot's length would put it at 0); one 0.9 mm across on the other side is 0.45 mm away; on the 90-degree slot the
+    # long axis is horizontal, so a via 1.0 mm below is 0.55 mm away
+    assert h2h == ["J1.SH and via GND: 0.450 mm hole to hole < 0.5 mm"]
+
+
+ASSY_PCB = """(kicad_pcb (general (thickness 1.6))
+ (layers (0 "F.Cu" signal) (2 "B.Cu" signal) (25 "Edge.Cuts" user))
+""" + "".join(f""" (footprint "R:R" (layer "F.Cu") (at {x} 20) (property "Reference" "{r}") (attr smd)
+  (pad "1" smd rect (at -0.5 0) (size 0.5 0.5) (layers "F.Cu") (net "A"))
+  (pad "2" smd rect (at 0.5 0) (size 0.5 0.5) (layers "F.Cu") (net "B")))
+""" for r, x in (("B1", 10), ("B2", 12.54), ("B3", 15.08), ("C1", 25.4))) + ")"
+
+
+@pytest.fixture
+def assy_board(tmp_path):
+    f = tmp_path / "a.kicad_pcb"
+    f.write_text(ASSY_PCB, encoding="utf-8")
+    return board.load(f)
+
+
+def test_bom_expands_designator_ranges(assy_board, tmp_path):
+    f = tmp_path / "BOM.csv"
+    f.write_text('"Reference","Value","Footprint"\n"B1-B3","1k","R:R"\n"C1","100n","R:R"\n', encoding="utf-8")
+    r = fab.bom(assy_board, [f], "t")[0]
+    assert r.status == PASS, [v["text"] for v in r.violations]
+    assert fab._designators("R1-3, R7;U2") == ["R1", "R2", "R3", "R7", "U2"]
+    assert fab._designators("U1-A") == ["U1-A"]  # not a range
+
+
+def test_cpl_reads_kicad_ascii_pos_in_inches(assy_board, tmp_path):
+    rows = "".join(f"{r:<9} 1k        R_0603   {x / 25.4:.4f}   {-20 / 25.4:.4f}   0.0000  top\n"
+                   for r, x in (("B1", 10), ("B2", 12.54), ("B3", 15.08), ("C1", 25.4)))
+    f = tmp_path / "position.csv"  # KiCad's ASCII .pos saved with a .csv name, as in real projects
+    f.write_text("### Footprint positions - created on 2026-09-29 ###\n### Printed by KiCad version 10.0.6\n"
+                 "## Unit = inches, Angle = deg.\n## Side : All\n"
+                 "# Ref     Val       Package  PosX       PosY       Rot  Side\n" + rows + "## End\n",
+                 encoding="utf-8")
+    r = fab.cpl(assy_board, [f], "t", 0.5)[0]
+    assert r.status == PASS, [v["text"] for v in r.violations]
+    f.write_text(f.read_text().replace(f"{25.4 / 25.4:.4f}", "1.1000"), encoding="utf-8")  # C1 moved 2.5 mm
+    r = fab.cpl(assy_board, [f], "t", 0.5)[0]
+    assert [v["text"].split(":")[0] for v in r.violations] == ["C1"]
+
+
+WIDTH_PCB = """(kicad_pcb (general (thickness 1.6))
+ (layers (0 "F.Cu" signal) (2 "B.Cu" signal) (25 "Edge.Cuts" user))
+ (footprint "R:R" (layer "F.Cu") (at 10 10) (property "Reference" "R5")
+  (pad "1" smd rect (at -0.5 0) (size 0.6 0.6) (layers "F.Cu") (net "+BATT"))
+  (pad "2" smd rect (at 0.5 0) (size 0.6 0.6) (layers "F.Cu") (net "DIV")))
+ (segment (start 9.5 10) (end 5 10) (width 0.2) (layer "F.Cu") (net "+BATT"))
+ (segment (start 5 10) (end 5 20) (width 1.0) (layer "F.Cu") (net "+BATT"))
+ (segment (start 20 10) (end 30 10) (width 0.2) (layer "F.Cu") (net "VBUS_EN"))
+ (segment (start 20 12) (end 30 12) (width 0.2) (layer "F.Cu") (net "VBUS_FAULT"))
+ (segment (start 20 14) (end 30 14) (width 0.2) (layer "F.Cu") (net "/Sense/+5V")))"""
+
+
+def test_power_width_skips_rail_control_signals(tmp_path):
+    f = tmp_path / "w.kicad_pcb"
+    f.write_text(WIDTH_PCB, encoding="utf-8")
+    proj = {"root": tmp_path, "params": {}, "pins": {}}
+    r = next(x for x in board.run(board.load(f), "t", proj) if x.check_id == "PCB-WIDTH-001")
+    # VBUS_EN / VBUS_FAULT are a load-switch enable and a fault flag, not the rail; a sheet named
+    # /Sense/ does not hide its rail; a thin +BATT stub says which pad it feeds
+    assert sorted(v["text"] for v in r.violations) == ["+BATT: 0.2 mm (thin tracks reach R5.1)", "/Sense/+5V: 0.2 mm"]
+    assert r.coverage["total"] == 2
+
+
+def test_dnp_alternative_placement_is_a_warning():
+    overlap = {"type": "courtyards_overlap", "severity": "error", "description": "Courtyards overlap",
+               "items": [{"description": "Footprint R9"}, {"description": "Footprint U5"}]}
+    pth = {"type": "pth_inside_courtyard", "severity": "error", "description": "PTH inside courtyard",
+           "items": [{"description": "PTH pad 1 [/MR+] of J106"}, {"description": "Footprint J8"}]}
+    holes = {"type": "hole_to_hole", "severity": "error", "description": "Drilled hole too close",
+             "items": [{"description": "PTH pad 1 [/MR+] of J106"}, {"description": "PTH pad 2 [/MR+] of J104"}]}
+    dnp = {"U5", "J104", "J106"}
+    assert kicad_cli._dnp_downgrade(overlap, dnp)["severity"] == "warning"
+    assert kicad_cli._dnp_downgrade(overlap, dnp)["description"].endswith("[DNP: U5]")
+    assert kicad_cli._dnp_downgrade(pth, dnp)["severity"] == "warning"
+    assert kicad_cli._dnp_downgrade(holes, dnp) is holes  # the holes are drilled anyway
+    assert kicad_cli._dnp_downgrade(overlap, set()) is overlap
+
+    kh = {"pcb": {"findings": [
+        {"rule_id": "PM-001", "severity": "error", "summary": "Courtyard overlap between C3 and U5",
+         "components": ["C3", "U5"]},
+        {"rule_id": "PM-001", "severity": "error", "summary": "Courtyard overlap between R10 and J1",
+         "components": ["J1", "R10"]}]}, "_version": "t"}
+    r = next(x for x in happy.to_results(kh, "t", {}, dnp) if x.check_id == "KH-PM-001")
+    assert r.status == FAIL  # R10/J1 are both fitted
+    assert any("[DNP: U5]" in v["text"] for v in r.violations)
+    r = next(x for x in happy.to_results({"pcb": {"findings": kh["pcb"]["findings"][:1]}, "_version": "t"},
+                                         "t", {}, dnp) if x.check_id == "KH-PM-001")
+    assert r.status == WARN
 
 
 def _pro(tmp_path, min_clearance, classes, dru=None):

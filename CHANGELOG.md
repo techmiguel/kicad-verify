@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+False FAILs found by running the fab gate on three public KiCad boards (badjeff/paw3222-pcb, gobabygocarswithjoysticks/gbg-pcb, aronreid/ups-to-esp32). Each was checked against pcbnew before the fix:
+- FAB-DFM-001 measures hole-to-hole distance with slots as capsules (pad orientation, both drill dimensions) instead of circles of the slot's length. A GND via next to a USB-C shield slot was reported at 0.078 mm; it is 0.227 mm.
+- FAB-BOM-001 expands grouped designators as KiCad's BOM writes them (`B1-B4`, `R1-3`). A grouped line was reported both as "in the BOM but not on the PCB" and as four parts missing from the BOM.
+- FAB-CPL-001 reads KiCad's ASCII position file whatever its extension, honouring `## Unit = inches|mm`. A `position.csv` in that format reported every part as missing.
+- PCB-WIDTH-001 no longer takes a rail's control or status signal for the rail (`VBUS_EN`, `VBUS_FAULT`, `VIN_SENSE`, `VBAT_DIV`...; matched on the last path component). Each narrow power net now names the pads its thin tracks reach, so a feed to a divider or pull-up can be told from the main current path.
+- Courtyard conflicts where one footprint is DNP (an alternative part laid over another) are warnings naming the DNP parts: DRC `courtyards_overlap`, `pth_inside_courtyard` and `npth_inside_courtyard`, and kicad-happy PM-001. Hole-to-hole conflicts stay errors, because those holes are drilled whether or not the part is fitted.
+
 ## 0.5.1 — 2026-10-07
 Usability and code-health release; no verifier logic changes (seeded bank unchanged, 21 of 23).
 - `kicadverify --version`; every command has a description in `--help`, listed in workflow order.

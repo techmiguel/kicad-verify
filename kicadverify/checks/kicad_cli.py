@@ -1,5 +1,6 @@
 """ERC and DRC through kicad-cli (flags verified with --help on KiCad 10.0.5)."""
 import json
+import re
 import shutil
 import subprocess
 import tempfile
@@ -13,6 +14,23 @@ PARITY_TYPES = {
     "missing_footprint", "extra_footprint", "net_conflict", "footprint_symbol_mismatch",
     "duplicate_footprints", "footprint_filters_mismatch", "schematic_parity",
 }
+
+
+# placement conflicts that do not exist on the assembled board when one of the footprints is DNP:
+# an alternative part laid over another (a regulator footprint over a buck converter, two connector
+# options). Drilled-hole conflicts stay errors: the holes are drilled whether the part is fitted or not
+DNP_PLACEMENT_TYPES = {"courtyards_overlap", "pth_inside_courtyard", "npth_inside_courtyard"}
+REF_RE = re.compile(r"(?:Footprint|of) ([^\s;()\[\]]+)")
+
+
+def _dnp_downgrade(v, dnp):
+    """A DNP-alternative placement conflict becomes a warning that names the DNP footprints."""
+    if v.get("type") not in DNP_PLACEMENT_TYPES or v.get("severity") != "error" or not dnp:
+        return v
+    refs = sorted({m for i in v.get("items", []) for m in REF_RE.findall(i.get("description", ""))} & set(dnp))
+    if not refs:
+        return v
+    return {**v, "severity": "warning", "description": f"{v.get('description')} [DNP: {', '.join(refs)}]"}
 
 
 def _run(args, timeout=900):
@@ -73,8 +91,9 @@ def erc(sch, label, evidence_dir=None):
                    evidence=[str(sch)] + ([kept] if kept else []))]
 
 
-def drc(pcb, label, evidence_dir=None):
-    """DRC (zones refilled in memory, file untouched) and unrouted connections. Parity lives in parity.py."""
+def drc(pcb, label, evidence_dir=None, dnp=()):
+    """DRC (zones refilled in memory, file untouched) and unrouted connections. Parity lives in parity.py.
+    `dnp`: references of DNP footprints, whose placement conflicts are reported as warnings."""
     if not Path(pcb).exists():
         return [not_verifiable("PCB-DRC-001", f"{label}: no PCB"), not_verifiable("PCB-CONN-001", f"{label}: no PCB")]
     with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as td:
@@ -88,7 +107,7 @@ def drc(pcb, label, evidence_dir=None):
             return [_tool_failed(c, label, "DRC produced no report") for c in ("PCB-DRC-001", "PCB-CONN-001")]
         data = json.loads(out.read_text(encoding="utf-8"))
         kept = _keep(out, evidence_dir, f"{label}.drc.json")
-    drc_raw = [v for v in data.get("violations", []) if v.get("type") not in PARITY_TYPES]
+    drc_raw = [_dnp_downgrade(v, dnp) for v in data.get("violations", []) if v.get("type") not in PARITY_TYPES]
     unconn = data.get("unconnected_items", [])
     res = []
     vs = [_violation(v, f"drc:{label}") for v in drc_raw]

@@ -26,6 +26,9 @@ DEFAULT_OVERRIDES = {
                         # current, and a missing resistor is a WARN there too (constant-current driver?)
 }
 SEV = {"fail": FAIL, "warn": WARN}
+# placement rules whose finding does not exist on the assembled board when a footprint involved is
+# DNP (an alternative laid over another part): reported as warnings that name the DNP parts
+DNP_PLACEMENT_RULES = {"PM-001"}
 
 
 def cache_dir():
@@ -88,7 +91,7 @@ def findings(data):
             yield name, f
 
 
-def to_results(data, label, params):
+def to_results(data, label, params, dnp=()):
     if data is None:
         return [Result("KH-ENGINE", WARN, "kicad-happy not installed: circuit/DFM detectors skipped "
                        "(run `kicadverify setup`)", outcome=NOT_VERIFIABLE)]
@@ -101,6 +104,9 @@ def to_results(data, label, params):
         mapped = overrides.get(rule) or {"error": "fail", "warning": "warn"}.get(sev, "info")
         if mapped in ("info", "off"):
             continue
+        dnp_refs = sorted(set(f.get("components") or []) & set(dnp)) if rule in DNP_PLACEMENT_RULES else []
+        if dnp_refs and mapped == "fail":
+            mapped = "warn"
         g = groups.setdefault(rule, {"status": WARN, "items": []})
         if SEV[mapped] == FAIL:
             g["status"] = FAIL
@@ -108,6 +114,8 @@ def to_results(data, label, params):
         text = f.get("summary") or f.get("description") or rule
         if refs and refs not in (f.get("summary") or ""):
             text += f" [{refs}]"
+        if dnp_refs:
+            text += f" [DNP: {', '.join(dnp_refs)}]"
         g["items"].append({"key": (f.get("finding_id") or f"{rule}:{text}")[-60:],
                            "text": f"{text} ({f.get('confidence', '?')})"})
     res = [Result(f"KH-{rule}", g["status"], f"{label}: kicad-happy {rule}: {count(len(g['items']), 'finding')}",

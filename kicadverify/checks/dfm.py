@@ -173,6 +173,12 @@ def pad_shape(p):
     return ("poly", [(cx + x, cy + y) for x, y in corners])
 
 
+def hole_shape(p):
+    """('capsule', a, b, r) of a pad's drill: a slot is the capsule of its oval, not a circle."""
+    w, h = p["drill"], p["drill2"] or p["drill"]
+    return pad_shape({"x": p["x"], "y": p["y"], "size": (w, h), "shape": "oval", "angle": p.get("angle", 0)})
+
+
 def _bbox(shape):
     if shape[0] == "capsule":
         _, a, b, r = shape
@@ -300,7 +306,7 @@ def geometry(board, label, prof, pcb=None):
         for p in fp["pads"]:
             if not p["drill"]:
                 continue
-            holes.append((p["x"], p["y"], max(p["drill"], p["drill2"] or 0) / 2, f"{fp['ref']}.{p['number']}"))
+            holes.append((hole_shape(p), f"{fp['ref']}.{p['number']}"))
             measured += 1
             name = f"{fp['ref']}.{p['number'] or '(np)'}"
             if dmax is not None and max(p["drill"], p["drill2"] or 0) > dmax + 1e-9:
@@ -313,22 +319,27 @@ def geometry(board, label, prof, pcb=None):
             if pring is not None and ring < pring - 1e-9:
                 bad("pthring", name, f"{name}: annular ring {ring:.3f} mm < {pring} mm "
                                      f"(pad {p['size'][0]}x{p['size'][1]}, drill {p['drill']})")
-    holes += [(v_["pos"][0], v_["pos"][1], v_["drill"] / 2, f"via {v_['net']}") for v_ in board["vias"]
-              if v_["drill"] and v_["pos"]]
+    holes += [(("capsule", tuple(v_["pos"]), tuple(v_["pos"]), v_["drill"] / 2), f"via {v_['net']}")
+              for v_ in board["vias"] if v_["drill"] and v_["pos"]]
     if (v := lim("min_hole_to_hole_mm")) is not None:
         cell = {}
-        size = max(1.0, 2 * max((h[2] for h in holes), default=0.5) + v)
-        for i, h in enumerate(holes):
-            cell.setdefault((int(h[0] // size), int(h[1] // size)), []).append(i)
-        for i, (x, y, r, name) in enumerate(holes):
+        # a hole is compared with the cells around its centre, so a cell spans the largest hole extent
+        reach = max((math.dist(h[0][1], h[0][2]) / 2 + h[0][3] for h in holes), default=0.5)
+        size = max(1.0, 2 * reach + v)
+        centre = [((h[0][1][0] + h[0][2][0]) / 2, (h[0][1][1] + h[0][2][1]) / 2) for h in holes]
+        for i, (x, y) in enumerate(centre):
+            cell.setdefault((int(x // size), int(y // size)), []).append(i)
+        for i, ((_, a, b, r), name) in enumerate(holes):
+            x, y = centre[i]
             cx, cy = int(x // size), int(y // size)
             for dx in (-1, 0, 1):
                 for dy in (-1, 0, 1):
                     for j in cell.get((cx + dx, cy + dy), []):
                         if j <= i:
                             continue
-                        x2, y2, r2, n2 = holes[j]
-                        d = math.hypot(x - x2, y - y2) - r - r2
+                        (_, a2, b2, r2), n2 = holes[j]
+                        x2, y2 = centre[j]
+                        d = seg_seg(a, b, a2, b2) - r - r2
                         if d < v - 1e-9 and not (abs(x - x2) < 1e-6 and abs(y - y2) < 1e-6):
                             bad("h2h", f"{name}|{n2}", f"{name} and {n2}: {max(d, 0):.3f} mm hole to hole < {v} mm")
     if (v := lim("min_copper_to_edge_mm")) is not None:

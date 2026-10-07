@@ -77,6 +77,7 @@ def checks(root, proj, mode):
                 results += fab.run(root, k["pcb"], b, label, params, mode)
             except Exception as e:
                 results.append(Result("PCB-PARSE", FAIL, f"{label}: could not parse or check the PCB: {e}"))
+        dnp = {fp["ref"] for fp in b["footprints"] if fp["dnp"]} if b else set()
         try:
             results += assertions.run(proj["requirements"], nl, b, label)
         except Exception as e:
@@ -84,14 +85,14 @@ def checks(root, proj, mode):
         if (params.get("kicad_happy") or {}).get("enabled", True):
             try:
                 kh = happy.analyze(k, gerber_dir if mode == "full" else None, cache / "kicad_happy" / label, params)
-                results += happy.to_results(kh, label, params)
+                results += happy.to_results(kh, label, params, dnp)
                 kh_summaries[label] = happy.summary_for_review(kh)
             except Exception as e:
                 results.append(Result("KH-ENGINE", WARN, f"{label}: kicad-happy failed: {e}",
                                       outcome=report.NOT_VERIFIABLE))
         if mode == "full":
             if k["pcb"].exists():
-                jobs.append(lambda p=k["pcb"], lab=label: kicad_cli.drc(p, lab, ev_dir))
+                jobs.append(lambda p=k["pcb"], lab=label, d=dnp: kicad_cli.drc(p, lab, ev_dir, d))
                 jobs.append(lambda kk=k: _interface(kk, params, proj))
             jobs.append(lambda s=k["sch"], lab=label: kicad_cli.erc(s, lab, ev_dir))
     if jobs:  # ERC, DRC and the STEP export take tens of seconds each: run them in parallel

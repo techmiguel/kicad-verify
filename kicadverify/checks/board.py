@@ -10,6 +10,10 @@ from ..report import FAIL, NOT_VERIFIABLE, PASS, WARN, Result, count, coverage, 
 from ..waivers import vkey
 
 POWER_RE = re.compile(r"(^|/)(\+|V)(\d|CC|DD|BUS|IN|BAT|SYS)|GND|VBAT|VMOT|VSYS", re.I)
+# a word after the rail name that makes it a control or status signal of that rail: VBUS_EN, VIN_SENSE
+# (matched on the last path component, so a sheet named /Sense/ does not hide its rails)
+SIGNAL_RE = re.compile(r"[_\-.](N?EN|ENABLE|N?FAULT|N?FLT|PG|PGOOD|N?OK|SENSE|SNS|DET|DETECT|ADC|MON|STAT|STATUS"
+                       r"|CTRL|CTL|ALERT|DIV)([_\-.]|$)", re.I)
 NO_MODEL_OK = ("TestPoint", "MountingHole", "Fiducial", "NetTie", "Logo", "Symbol")
 
 
@@ -31,6 +35,24 @@ def _drill(node):
     if not vals:
         return None
     return (vals[0], vals[1] if len(vals) > 1 and dr[1] == "oval" else vals[0])
+
+
+def _reaches(board, net, points, limit=8):
+    """' (thin tracks reach R5.1, R13.1)': the pads of `net` that the narrow segments end on, so a
+    reader can tell a feed to a divider or a pull-up from the rail's main current path."""
+    hit = []
+    for fp in board["footprints"]:
+        for p in fp["pads"]:
+            if p["net"] != net:
+                continue
+            r = max(p["size"]) / 2 if p["size"] else 0.0
+            if any(math.hypot(x - p["x"], y - p["y"]) <= r + 1e-6 for x, y in points):
+                hit.append(f"{fp['ref']}.{p['number']}")
+    hit = sorted(set(hit))
+    if not hit:
+        return ""
+    more = f" and {len(hit) - limit} more" if len(hit) > limit else ""
+    return f" (thin tracks reach {', '.join(hit[:limit])}{more})"
 
 
 def load(pcb):
@@ -234,16 +256,18 @@ def run(board, label, proj, pcb=None):
 
     minw = float(params.get("min_power_width_mm", 0.25))
     extra = [re.compile(x, re.I) for x in params.get("power_net_patterns") or []]
-    thin, power = {}, set()
+    thin, power, ends = {}, set(), {}
     for t in board["tracks"]:
         n = t["net"] or ""
-        if POWER_RE.search(n) or any(r.search(n) for r in extra):
+        if any(r.search(n) for r in extra) or (POWER_RE.search(n) and not SIGNAL_RE.search(n.rsplit("/", 1)[-1])):
             power.add(n)
             if t["width"] < minw - 1e-6:
                 thin[n] = min(t["width"], thin.get(n, 99))
+                ends.setdefault(n, []).extend(p for p in (t.get("start"), t.get("end")) if p)
     res.append(Result("PCB-WIDTH-001", FAIL if thin else PASS,
                       f"{label}: {count(len(thin), 'power net')} with tracks narrower than {minw} mm",
-                      violations=[{"key": vkey("width", n), "text": f"{n}: {w} mm"} for n, w in thin.items()],
+                      violations=[{"key": vkey("width", n), "text": f"{n}: {w} mm" + _reaches(board, n, ends[n])}
+                                  for n, w in thin.items()],
                       coverage=coverage("routed power nets", len(power))))
 
     if not pins:

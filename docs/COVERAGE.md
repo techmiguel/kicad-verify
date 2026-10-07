@@ -21,7 +21,7 @@ A requirement is VERIFIED only when every verifier behind it ran, found nothing 
 | PCB-FOOT-001 | fast, full | .kicad_pcb, verification/pcb/approved_footprints.txt | Footprints not in the approved list | Whether the approved list itself is right; approve each entry against the datasheet |
 | PCB-MODEL-001 | fast, full | .kicad_pcb | Footprints without a 3D model | A model of the wrong part or wrongly oriented |
 | PCB-PADNET-001 | fast, full | .kicad_pcb | Electrical pads without a net | Whether the pin was meant to be NC (each one must be waived with the reason) |
-| PCB-WIDTH-001 | fast, full | .kicad_pcb | Tracks narrower than min_power_width_mm on nets whose name looks like power | Real current capacity (copper weight, length, temperature rise); power nets with unusual names (power_net_patterns); planes and zones |
+| PCB-WIDTH-001 | fast, full | .kicad_pcb | Tracks narrower than min_power_width_mm on nets whose name looks like power, except a rail's control or status signals (`VBUS_EN`, `VIN_SENSE`); names the pads the thin tracks reach | Real current capacity (copper weight, length, temperature rise); power nets with unusual names (power_net_patterns); planes and zones |
 | PCB-PINS-001 | fast, full | .kicad_pcb, verification/pcb/pins.yaml | Pins listed in pins.yaml compared with the PCB nets | Pins not listed; transcription errors in pins.yaml |
 | PCB-HOLE-001 | fast, full | .kicad_pcb, params.mounting_holes | Mounting-hole position and drill vs the expected values | Whether the expected values match the enclosure (the board interface lets a mechanical tool check that) |
 | PCB-KEEPOUT-001 | fast, full | .kicad_pcb | Tracks, vias and pads of other nets inside the washer radius | Copper zones; screw heads larger than the configured radius |

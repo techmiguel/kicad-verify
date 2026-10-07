@@ -195,7 +195,43 @@ def drills(board, files, label):
 # ---------------------------------------------------------------- BOM / CPL
 def _rows(path):
     raw = Path(path).read_bytes().decode("utf-8-sig", errors="ignore")
-    return list(csv.DictReader(raw.splitlines()))
+    lines = raw.splitlines()
+    if any(ln.startswith("# Ref") for ln in lines[:10]):
+        return _kicad_pos_rows(lines)
+    return list(csv.DictReader(lines))
+
+
+def _kicad_pos_rows(lines):
+    """KiCad's ASCII position file (whatever its extension): '#' comments, '## Unit = inches|mm',
+    whitespace-separated `Ref Val Package PosX PosY Rot Side`. Positions are returned in mm."""
+    scale = 1.0
+    rows = []
+    for ln in lines:
+        if ln.startswith("#"):
+            if m := re.match(r"##\s*Unit\s*=\s*(\w+)", ln):
+                scale = 25.4 if m.group(1).lower().startswith("inch") else 1.0
+            continue
+        tok = ln.split()
+        if len(tok) < 7:  # Val and Package may hold spaces; Ref first and the four last are fixed
+            continue
+        x, y = _num(tok[-4]), _num(tok[-3])
+        if x is None or y is None:
+            continue
+        rows.append({"ref": tok[0], "posx": str(x * scale), "posy": str(y * scale), "rot": tok[-2],
+                     "side": tok[-1]})
+    return rows
+
+
+def _designators(field):
+    """Designators in a BOM cell: 'C1,C2 C3;C4', and ranges as KiCad groups them, 'B1-B4' or 'B1-4'."""
+    out = []
+    for d in [x.strip() for x in re.split(r"[,; ]+", field or "") if x.strip()]:
+        m = re.fullmatch(r"([A-Za-z_]+)(\d+)-(?:\1)?(\d+)", d)
+        if m and int(m.group(2)) < int(m.group(3)) <= int(m.group(2)) + 999:
+            out += [f"{m.group(1)}{i}" for i in range(int(m.group(2)), int(m.group(3)) + 1)]
+        else:
+            out.append(d)
+    return out
 
 
 def _col(row, *names):
@@ -224,7 +260,7 @@ def bom(board, files, label):
         des = _col(r, "designator", "reference", "references", "ref", "designators") or ""
         fpn = (_col(r, "footprint", "package") or "").strip()
         lcsc = _col(r, "lcsc part #", "lcsc", "jlcpcb part #", "lcsc part number")
-        for d in [x.strip() for x in re.split(r"[,; ]+", des) if x.strip()]:
+        for d in _designators(des):
             seen[d] = True
             if d not in want:
                 diffs.append(f"{d}: in the BOM but not assembled on the PCB (or excluded from BOM)")
