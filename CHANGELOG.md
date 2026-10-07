@@ -1,7 +1,7 @@
 # Changelog
 
 ## Unreleased
-False FAILs found by running the fab gate on three public KiCad boards (badjeff/paw3222-pcb, gobabygocarswithjoysticks/gbg-pcb, aronreid/ups-to-esp32). Each was checked against pcbnew before the fix:
+False FAILs found by running the fab gate on three public KiCad boards (badjeff/paw3222-pcb, gobabygocarswithjoysticks/gbg-pcb, aronreid/ups-to-esp32). Each was checked against pcbnew before the fix. Seeded bank unchanged: 21 of 23.
 - FAB-DFM-001 measures hole-to-hole distance with slots as capsules (pad orientation, both drill dimensions) instead of circles of the slot's length. A GND via next to a USB-C shield slot was reported at 0.078 mm; it is 0.227 mm.
 - FAB-BOM-001 expands grouped designators as KiCad's BOM writes them (`B1-B4`, `R1-3`). A grouped line was reported both as "in the BOM but not on the PCB" and as four parts missing from the BOM.
 - FAB-CPL-001 reads KiCad's ASCII position file whatever its extension, honouring `## Unit = inches|mm`. A `position.csv` in that format reported every part as missing.
