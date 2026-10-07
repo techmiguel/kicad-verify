@@ -72,16 +72,37 @@ def find_root(start):
     for d in chain:
         if any(d.glob("*.kicad_pro")) or any((d / "hardware").glob("*.kicad_pro")):
             return d, False
+    if p.is_dir() and candidates(p):  # boards in sub-folders: discover() chooses or asks
+        return p, False
     return None, False
 
 
+def _board(pro):
+    pro = Path(pro)
+    return {"pro": pro, "pcb": pro.with_suffix(".kicad_pcb"), "sch": pro.with_suffix(".kicad_sch"),
+            "label": pro.stem}
+
+
+def candidates(root):
+    """Every KiCad project under `root` (the boards a repository holds)."""
+    return sorted((_board(f) for f in walk(root) if f.suffix.lower() == ".kicad_pro"), key=lambda k: str(k["pro"]))
+
+
 def discover(root):
-    out = []
-    for f in walk(root):
-        if f.suffix.lower() == ".kicad_pro":
-            out.append({"pro": f, "pcb": f.with_suffix(".kicad_pcb"), "sch": f.with_suffix(".kicad_sch"),
-                        "label": f.stem})
-    return sorted(out, key=lambda k: str(k["pro"]))
+    """The board this verification is about: [board], [] when there is none, or every candidate when
+    several are found and none is chosen (the caller reports the ambiguity instead of mixing boards).
+    `board:` in verification/pcb/project.yaml chooses; otherwise a single project, or the single one
+    in `root` itself, is the board."""
+    root = Path(root)
+    chosen = (load_yaml(root / DIRNAME / "project.yaml", {}) or {}).get("board")
+    if chosen:
+        pro = root / chosen
+        return [_board(pro)] if pro.exists() else []
+    found = candidates(root)
+    if len(found) <= 1:
+        return found
+    top = [k for k in found if k["pro"].parent == root]
+    return top if len(top) == 1 else found
 
 
 def artifact_hash(root, include_outputs=True):
@@ -108,8 +129,27 @@ DESIGN_SUFFIXES = (".kicad_pcb", ".kicad_sch", ".kicad_pro", ".kicad_dru")
 
 def design_files(root):
     """KiCad files that define the design. .kicad_pro and .kicad_dru hold the design rules and net
-    classes the DRC is judged against, so they are part of the design."""
-    return [f for f in sorted(walk(root)) if f.suffix.lower() in DESIGN_SUFFIXES]
+    classes the DRC is judged against, so they are part of the design. Only the board's own files
+    count: its folder, without sub-folders that hold another KiCad project (another board of the same
+    repository must not change this board's design hash and invalidate its sign-offs)."""
+    boards = discover(root)
+    if len(boards) != 1:
+        return [f for f in sorted(walk(root)) if f.suffix.lower() in DESIGN_SUFFIXES]
+    me = boards[0]["pro"]
+    base = me.parent
+    other = [k["pro"] for k in candidates(root) if k["pro"] != me]
+    other_dirs = {o.parent for o in other if o.parent != base}
+    other_stems = {o.stem for o in other if o.parent == base}  # another project in the same folder
+    out = []
+    for f in sorted(walk(base)):
+        if f.suffix.lower() not in DESIGN_SUFFIXES:
+            continue
+        if any(d in other_dirs for d in f.parents if base in d.parents):
+            continue
+        if f.parent == base and f.stem in other_stems:
+            continue
+        out.append(f)
+    return out
 
 
 def design_hash(root):
@@ -181,7 +221,7 @@ def _write_detected_outputs(root, req_file):
                         + text[j:], encoding="utf-8")
 
 
-def init_project(root, ci=None):
+def init_project(root, ci=None, board=None):
     root = Path(root)
     vd = root / DIRNAME
     vd.mkdir(parents=True, exist_ok=True)
@@ -192,7 +232,11 @@ def init_project(root, ci=None):
             shutil.copy(t, dst)
             created.append(dst)
             if dst.name == "project.yaml":
-                dst.write_text(dst.read_text(encoding="utf-8").replace("{{name}}", root.name), encoding="utf-8")
+                text = dst.read_text(encoding="utf-8").replace("{{name}}", root.name)
+                if board:
+                    rel = os.path.relpath(Path(board).resolve(), root.resolve()).replace("\\", "/")
+                    text += f"board: {rel}            # the board this verification is about\n"
+                dst.write_text(text, encoding="utf-8")
             if dst.name == "requirements.yaml":
                 _write_detected_outputs(root, dst)
     if ci == "github":

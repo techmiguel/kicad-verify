@@ -614,6 +614,32 @@ def test_init_finds_outputs_outside_the_project_folder(tmp_path):
     assert len(g) == 2 and b == [kicad / "../bom/bom.csv"] and c == [kicad / "../bom/cpl.csv"]
 
 
+def test_one_board_per_verification(tmp_path, capsys):
+    repo = tmp_path / "hw"
+    for b in ("main", "daughter"):
+        (repo / b).mkdir(parents=True)
+        for ext in (".kicad_pro", ".kicad_pcb", ".kicad_sch"):
+            (repo / b / (b + ext)).write_text("{}" if ext == ".kicad_pro" else f"({b})")
+    (repo / "main" / "power.kicad_sch").write_text("(sub-sheet)")
+    # two boards and none chosen: refuse rather than mix them
+    assert cli.main(["init", str(repo)]) == 2
+    assert "kicad-verify reviews one board at a time" in capsys.readouterr().err
+    assert not (repo / config.DIRNAME).exists()
+    assert cli.main(["init", str(repo), "--board", str(repo / "main" / "main.kicad_pro")]) == 0
+    assert [k["label"] for k in config.discover(repo)] == ["main"]
+    assert sorted(f.name for f in config.design_files(repo)) == [
+        "main.kicad_pcb", "main.kicad_pro", "main.kicad_sch", "power.kicad_sch"]
+    h = config.design_hash(repo)
+    (repo / "daughter" / "daughter.kicad_pcb").write_text("(changed)")  # the other board changes
+    assert config.design_hash(repo) == h
+    (repo / "main" / "power.kicad_sch").write_text("(changed)")  # a sheet of this board changes
+    assert config.design_hash(repo) != h
+    # a folder whose own board sits at its top keeps it even with boards in sub-folders
+    (repo / "main" / "sub").mkdir()
+    (repo / "main" / "sub" / "x.kicad_pro").write_text("{}")
+    assert [k["label"] for k in config.discover(repo / "main")] == ["main"]
+
+
 def _pro(tmp_path, min_clearance, classes, dru=None):
     pro = tmp_path / "x.kicad_pro"
     pro.write_text(json.dumps({"board": {"design_settings": {"rules": {"min_clearance": min_clearance}}},

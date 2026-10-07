@@ -111,7 +111,7 @@ requirements:
 ## Commands
 
 ```bash
-kicadverify init PATH [--ci github]          # create verification/pcb/ (and a CI workflow)
+kicadverify init PATH [--board X.kicad_pro] [--ci github]  # verification/pcb/ for one board (and a CI workflow)
 kicadverify verify PATH [--gate fab] [--fast] # deterministic checks; --fast skips ERC/DRC/re-plot (~4 s)
 kicadverify review PATH                      # + independent reviewer (Claude Code CLI, 2-5 min)
 kicadverify signoff HUM-FIT-001 --by "Name" --path PATH [--fail --note "..."]

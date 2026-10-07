@@ -38,6 +38,14 @@ def _lint(proj):
     return requirements.lint(proj["requirements"], proj["excluded"], assertions.TYPES)
 
 
+def _ambiguous(root):
+    found = config.discover(root)
+    names = "\n".join(f"  {os.path.relpath(k['pro'], root)}" for k in found)
+    return (f"{len(found)} KiCad projects under {root}; kicad-verify reviews one board at a time. Choose one:\n"
+            f"{names}\n  kicadverify init {root} --board <one of them>"
+            "   (or `board:` in verification/pcb/project.yaml)")
+
+
 def checks(root, proj, mode):
     """Every deterministic verifier. Returns (results before waivers, designs, kicad-happy summaries)."""
     params = proj["params"]
@@ -47,6 +55,9 @@ def checks(root, proj, mode):
     results, designs, kh_summaries, jobs = [], {}, {}, []
     if not kicads:
         results.append(Result("DISCOVER", SKIP, "no KiCad project found"))
+    elif len(kicads) > 1:  # never mixed: the checks and the design hash are about one board
+        results.append(Result("DISCOVER", FAIL, _ambiguous(root).replace("\n", " ")))
+        kicads = []
     gerber_dir = None
     gerbers, _, _, _ = fab.find_outputs(root, params)
     if gerbers:
@@ -268,6 +279,8 @@ def build_parser():
                            help="run the reviewer even when a review for this exact design is on record")
         if name == "init":
             p.add_argument("--ci", choices=["github"], help="also write a CI workflow")
+            p.add_argument("--board", help="the .kicad_pro to verify when the folder holds several boards "
+                                           "(recorded as `board:` in verification/pcb/project.yaml)")
         if name == "requirements":
             p.add_argument("--lint", action="store_true", help="validate the requirement set; exit 2 on errors")
             p.add_argument("--markdown", action="store_true", help="print the requirement table as Markdown")
@@ -327,12 +340,22 @@ def main(argv=None):
     if a.cmd == "check-attestation":
         return _check_attestation(a)
 
+    board = getattr(a, "board", None)
+    if str(a.path).lower().endswith(".kicad_pro"):  # `init path/to/board.kicad_pro` chooses the board
+        board = board or a.path
+        a.path = str(Path(a.path).parent)
     root, initialised = config.find_root(a.path)
     if root is None:
         print("No KiCad project (.kicad_pro) found from", a.path, file=sys.stderr)
         return EXIT_NO_PROJECT
     if a.cmd == "init" or not initialised:
-        created = config.init_project(root, ci=getattr(a, "ci", None))
+        if board and not Path(board).resolve().is_file():
+            print(f"--board {board}: no such .kicad_pro", file=sys.stderr)
+            return EXIT_CONFIG
+        if not board and len(config.discover(root)) > 1 and not (root / config.DIRNAME / "project.yaml").exists():
+            print(_ambiguous(root), file=sys.stderr)
+            return EXIT_CONFIG
+        created = config.init_project(root, ci=getattr(a, "ci", None), board=board)
         if a.cmd == "init":
             print("\n".join(["Created:"] + [f"  {c}" for c in created]) if created else "Already initialised.")
             return 0
