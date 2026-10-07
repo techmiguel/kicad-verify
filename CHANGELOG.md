@@ -1,6 +1,7 @@
 # Changelog
 
-## Unreleased
+## 0.5.1 — 2026-10-07
+Usability and code-health release; no verifier logic changes (seeded bank unchanged, 21 of 23).
 - `kicadverify --version`; every command has a description in `--help`, listed in workflow order.
 - A clear notice when `kicad-cli` is not found, instead of one `[Errno 2]` per requirement.
 - Report summaries use singular and plural correctly ("1 polarity error", "3 DRC violations").

@@ -19,7 +19,7 @@ Gates (`dev`, `fab`, `release`) decide from those states. Nothing is VERIFIED by
 Requires Python 3.10+ and KiCad 10 (`kicad-cli`, tested with 10.0.5 and 10.0.6).
 
 ```bash
-pip install "git+https://github.com/techmiguel/kicad-verify@v0.5.0"
+pip install "git+https://github.com/techmiguel/kicad-verify@v0.5.1"
 kicadverify setup                               # downloads the pinned kicad-happy engine
 kicadverify init path/to/project --ci github    # verification/pcb/ + a GitHub Actions workflow
 kicadverify verify path/to/project --gate fab   # ready to fabricate? (10-20 s on a two-layer board)
