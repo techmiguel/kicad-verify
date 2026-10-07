@@ -38,7 +38,7 @@ checks:
     layer: kicad
     modes: [fast, full]
     inputs: [.kicad_sch, .kicad_pcb]
-    covers: Symbol pins without a pad (unless another pin of the same symbol on the same net has a pad carrying it: one contact drawn as two pins); electrical pads without a symbol pin (wrong package or numbering)
+    covers: Symbol pins without a pad (unless another pin of the same symbol on the same net has a pad carrying it, as when one contact is drawn as two pins); electrical pads without a symbol pin (wrong package or numbering)
     limits: A pin number that exists in both but means something else (MOD-PINOUT-001)
   PCB-FOOT-001:
     title: Approved footprints
