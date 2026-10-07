@@ -54,9 +54,121 @@ def _drill(node):
     return (vals[0], vals[1] if len(vals) > 1 and dr[1] == "oval" else vals[0])
 
 
+# a chain of thin tracks that only reaches capacitors or test points is a stub (decoupling, probing):
+# no DC load current flows in it, so its width is not a current-capacity question
+STUB_REF = re.compile(r"^(C|CP|TP)\d+$", re.I)
+
+
+def ipc2221_width_mm(current_a, copper_mm, dt_c=10.0, internal=False):
+    """IPC-2221 track width for `current_a` with a `dt_c` temperature rise: I = k dT^0.44 A^0.725
+    (A in mil^2; k = 0.048 outer layers, 0.024 inner layers)."""
+    k = 0.024 if internal else 0.048
+    area_mil2 = (current_a / (k * dt_c ** 0.44)) ** (1 / 0.725)
+    return area_mil2 / (copper_mm / 0.0254) * 0.0254
+
+
+def _chains(segs):
+    """Groups of segments joined end to end (within 1 µm)."""
+    parent = list(range(len(segs)))
+
+    def find(i):
+        while parent[i] != i:
+            parent[i] = parent[parent[i]]
+            i = parent[i]
+        return i
+    at = {}
+    for i, s in enumerate(segs):
+        for pt in (s["start"], s["end"]):
+            key = (round(pt[0], 3), round(pt[1], 3))
+            if key in at:
+                parent[find(i)] = find(at[key])
+            else:
+                at[key] = i
+    groups = {}
+    for i in range(len(segs)):
+        groups.setdefault(find(i), []).append(segs[i])
+    return list(groups.values())
+
+
+def _current(params, net):
+    """Declared DC current (A) of a net: params.net_currents by exact name, or by a '~regex' key."""
+    for k, v in (params.get("net_currents") or {}).items():
+        k = str(k)
+        if (k.startswith("~") and re.fullmatch(k[1:], net)) or k == net:
+            return float(v)
+    return None
+
+
+def power_width(board, label, params):
+    """PCB-WIDTH-001. Power nets are found by name; on each, the chains of tracks narrower than the
+    limit are judged, except stubs to capacitors and test points. The limit is IPC-2221 for a declared
+    current, else the project's min_power_width_mm; with neither, the chain is a coverage gap that asks
+    for the net's current."""
+    explicit = params.get("min_power_width_mm")
+    review = float(params.get("power_review_width_mm", 0.25))
+    dt = float(params.get("width_temp_rise_c", 10))
+    extra = [re.compile(x, re.I) for x in params.get("power_net_patterns") or []]
+    by_net = {}
+    for tr in board["tracks"]:
+        n = tr["net"] or ""
+        if tr["start"] and tr["end"] and (any(r.search(n) for r in extra)
+                                          or (POWER_RE.search(n) and not SIGNAL_RE.search(n.rsplit("/", 1)[-1]))):
+            by_net.setdefault(n, []).append(tr)
+    viol, gaps = [], []
+    for net, segs in sorted(by_net.items()):
+        cur = _current(params, net)
+
+        def limit(tr, cur=cur):
+            if cur is not None:
+                cu = board.get("copper_mm", {}).get(tr["layer"]) or 0.035
+                return ipc2221_width_mm(cur, cu, dt, internal=tr["layer"] not in ("F.Cu", "B.Cu"))
+            return float(explicit) if explicit is not None else review
+        thin = [tr for tr in segs if tr["width"] < limit(tr) - 1e-6]
+        open_pts, open_w = [], None
+        for chain in _chains(thin):
+            pts = [pt for tr in chain for pt in (tr["start"], tr["end"])]
+            refs = {r.split(".")[0] for r in _reached_pads(board, net, pts)}
+            if refs and all(STUB_REF.match(r) for r in refs):
+                continue
+            w = min(tr["width"] for tr in chain)
+            where = _reaches(board, net, pts)
+            if cur is not None:
+                tr = min(chain, key=lambda x: x["width"] - limit(x))
+                cu = board.get("copper_mm", {}).get(tr["layer"]) or 0.035
+                viol.append({"key": vkey("width", net, tr["layer"]),
+                             "text": f"{net}: {tr['width']} mm on {tr['layer']} for {cur:g} A; IPC-2221 needs "
+                                     f"{limit(tr):.2f} mm (+{dt:g} °C, {cu * 1000:.0f} µm copper){where}"})
+            elif explicit is not None:
+                viol.append({"key": vkey("width", net), "text": f"{net}: {w} mm{where}"})
+            else:
+                open_pts += pts
+                open_w = w if open_w is None else min(open_w, w)
+        if open_pts:  # one gap per net, whatever the number of chains: the input asked for is the same
+            gaps.append({"key": vkey("widthgap", net),
+                         "text": f"{net}: tracks down to {open_w} mm{_reaches(board, net, open_pts)}; declare the "
+                                 "net's current in params.net_currents to check them against IPC-2221"})
+    n = len(by_net)
+    if explicit is not None and not viol:
+        detail = f"{label}: no power net below {explicit} mm outside decoupling stubs"
+    else:
+        detail = f"{label}: {count(len(viol), 'power track')} too narrow for its current or limit"
+    if gaps:
+        detail += f"; {count(len(gaps), 'net')} with thin tracks and no declared current"
+    return Result("PCB-WIDTH-001", FAIL if viol else PASS, detail, violations=viol,
+                  coverage=coverage("routed power nets", n, gaps))
+
+
 def _reaches(board, net, points, limit=8):
     """' (thin tracks reach R5.1, R13.1)': the pads of `net` that the narrow segments end on, so a
     reader can tell a feed to a divider or a pull-up from the rail's main current path."""
+    hit = _reached_pads(board, net, points)
+    if not hit:
+        return ""
+    more = f" and {len(hit) - limit} more" if len(hit) > limit else ""
+    return f" (thin tracks reach {', '.join(hit[:limit])}{more})"
+
+
+def _reached_pads(board, net, points):
     hit = []
     for fp in board["footprints"]:
         for p in fp["pads"]:
@@ -65,11 +177,7 @@ def _reaches(board, net, points, limit=8):
             r = max(p["size"]) / 2 if p["size"] else 0.0
             if any(math.hypot(x - p["x"], y - p["y"]) <= r + 1e-6 for x, y in points):
                 hit.append(f"{fp['ref']}.{p['number']}")
-    hit = sorted(set(hit))
-    if not hit:
-        return ""
-    more = f" and {len(hit) - limit} more" if len(hit) > limit else ""
-    return f" (thin tracks reach {', '.join(hit[:limit])}{more})"
+    return sorted(set(hit))
 
 
 def load(pcb):
@@ -146,6 +254,10 @@ def load(pcb):
     layers = sexp.child(tree, "layers") or []
     general = sexp.child(tree, "general") or []
     th = sexp.child(general, "thickness")
+    copper_mm = {}
+    for ly in sexp.children(sexp.child(setup, "stackup") or [], "layer"):
+        if (sexp.child(ly, "type") or ["", ""])[1] == "copper" and sexp.child(ly, "thickness"):
+            copper_mm[ly[1]] = sexp.num(sexp.child(ly, "thickness")[1])
     return {"footprints": fps, "tracks": tracks, "vias": vias, "zones": zones,
             "edge_segments": edge_segments, "zone_fills": zone_fills,
             "aux_origin": _xy(setup, "aux_axis_origin") or (0.0, 0.0),
@@ -155,6 +267,7 @@ def load(pcb):
             "copper_layers": [ly[1] for ly in layers[1:] if isinstance(ly, list) and len(ly) > 2
                               and str(ly[1]).endswith(".Cu")],
             "thickness": sexp.num(th[1], 1.6) if th else 1.6,
+            "copper_mm": copper_mm,  # per copper layer, from the board stackup (empty: not declared)
             "outline_bbox": ([min(p[0] for p in edge), min(p[1] for p in edge),
                               max(p[0] for p in edge), max(p[1] for p in edge)] if edge else None)}
 
@@ -274,21 +387,7 @@ def run(board, label, proj, pcb=None):
                       violations=[{"key": vkey("padnet", r, n), "text": f"{r}.{n}"} for r, n in nonet],
                       coverage=coverage("electrical pads", len(electrical))))
 
-    minw = float(params.get("min_power_width_mm", 0.25))
-    extra = [re.compile(x, re.I) for x in params.get("power_net_patterns") or []]
-    thin, power, ends = {}, set(), {}
-    for t in board["tracks"]:
-        n = t["net"] or ""
-        if any(r.search(n) for r in extra) or (POWER_RE.search(n) and not SIGNAL_RE.search(n.rsplit("/", 1)[-1])):
-            power.add(n)
-            if t["width"] < minw - 1e-6:
-                thin[n] = min(t["width"], thin.get(n, 99))
-                ends.setdefault(n, []).extend(p for p in (t.get("start"), t.get("end")) if p)
-    res.append(Result("PCB-WIDTH-001", FAIL if thin else PASS,
-                      f"{label}: {count(len(thin), 'power net')} with tracks narrower than {minw} mm",
-                      violations=[{"key": vkey("width", n), "text": f"{n}: {w} mm" + _reaches(board, n, ends[n])}
-                                  for n, w in thin.items()],
-                      coverage=coverage("routed power nets", len(power))))
+    res.append(power_width(board, label, params))
 
     if not pins:
         res.append(not_verifiable("PCB-PINS-001", f"{label}: no critical pins listed in verification/pcb/pins.yaml",

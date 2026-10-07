@@ -12,7 +12,7 @@ params:
   #   barriers:
   #     - {name: mains to SELV, a: {netclass: MAINS}, required_mm: 6.4,
   #        source: {kind: regulatory, ref: "standard, table, insulation class, working voltage, PD, material group"}}
-  # min_power_width_mm: 0.4
+  # net_currents: {"+5V": 2.0, "~/MOTOR.*": 3.5}   # A, for PCB-WIDTH-001 (IPC-2221); or a fixed min_power_width_mm
   # net_voltages: {"/VIN": 12}
   # mounting_holes: {drill_mm: 3.2, tol_mm: 0.1, expected: [[10, 10], [90, 10]]}
   # interface: {step_user_origin: "100x149mm"}

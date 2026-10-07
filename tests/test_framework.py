@@ -393,18 +393,46 @@ WIDTH_PCB = """(kicad_pcb (general (thickness 1.6))
  (segment (start 5 10) (end 5 20) (width 1.0) (layer "F.Cu") (net "+BATT"))
  (segment (start 20 10) (end 30 10) (width 0.2) (layer "F.Cu") (net "VBUS_EN"))
  (segment (start 20 12) (end 30 12) (width 0.2) (layer "F.Cu") (net "VBUS_FAULT"))
- (segment (start 20 14) (end 30 14) (width 0.2) (layer "F.Cu") (net "/Sense/+5V")))"""
+ (segment (start 20 14) (end 30 14) (width 0.2) (layer "F.Cu") (net "/Sense/+5V"))
+ (footprint "C:C" (layer "F.Cu") (at 40 10) (property "Reference" "C7")
+  (pad "1" smd rect (at -0.5 0) (size 0.6 0.6) (layers "F.Cu") (net "GND")))
+ (segment (start 39.5 10) (end 35 10) (width 0.15) (layer "F.Cu") (net "GND"))
+ (segment (start 35 10) (end 35 20) (width 1.0) (layer "F.Cu") (net "GND")))"""
 
 
-def test_power_width_skips_rail_control_signals(tmp_path):
+def _width(tmp_path, params):
     f = tmp_path / "w.kicad_pcb"
     f.write_text(WIDTH_PCB, encoding="utf-8")
-    proj = {"root": tmp_path, "params": {}, "pins": {}}
-    r = next(x for x in board.run(board.load(f), "t", proj) if x.check_id == "PCB-WIDTH-001")
+    proj = {"root": tmp_path, "params": params, "pins": {}}
+    return next(x for x in board.run(board.load(f), "t", proj) if x.check_id == "PCB-WIDTH-001")
+
+
+def test_power_width_needs_a_current_and_skips_stubs_and_control_signals(tmp_path):
     # VBUS_EN / VBUS_FAULT are a load-switch enable and a fault flag, not the rail; a sheet named
-    # /Sense/ does not hide its rail; a thin +BATT stub says which pad it feeds
+    # /Sense/ does not hide its rail; the 0.15 mm GND stub only reaches a decoupling capacitor
+    r = _width(tmp_path, {})
+    assert r.status == PASS and not r.violations
+    assert sorted(u["text"] for u in r.coverage["unchecked"]) == [
+        "+BATT: tracks down to 0.2 mm (thin tracks reach R5.1); declare the net's current in params.net_currents "
+        "to check them against IPC-2221",
+        "/Sense/+5V: tracks down to 0.2 mm; declare the net's current in params.net_currents to check them "
+        "against IPC-2221"]
+    assert r.coverage["total"] == 3  # +BATT, /Sense/+5V, GND
+    assert verdict([req("PCB-WIDTH-001")], [r])["PCB-WIDTH-001"]["status"] == NOT_VERIFIABLE
+    # with the currents declared: 0.2 mm of 35 µm copper carries ~0.9 A at +10 °C (IPC-2221)
+    r = _width(tmp_path, {"net_currents": {"+BATT": 0.5, "~.*5V": 2}})
+    assert not r.coverage["unchecked"] and [v["text"] for v in r.violations] == [
+        "/Sense/+5V: 0.2 mm on F.Cu for 2 A; IPC-2221 needs 0.78 mm (+10 °C, 35 µm copper)"]
+    # a fixed project limit keeps the former behaviour
+    r = _width(tmp_path, {"min_power_width_mm": 0.25})
     assert sorted(v["text"] for v in r.violations) == ["+BATT: 0.2 mm (thin tracks reach R5.1)", "/Sense/+5V: 0.2 mm"]
-    assert r.coverage["total"] == 2
+
+
+def test_ipc2221_width():
+    # IPC-2221 chart values: 1 A, +10 °C, 1 oz outer copper ~ 0.30 mm; inner layers need about 2.6x
+    assert board.ipc2221_width_mm(1.0, 0.035) == pytest.approx(0.30, abs=0.01)
+    assert board.ipc2221_width_mm(1.0, 0.035, internal=True) / board.ipc2221_width_mm(1.0, 0.035) == pytest.approx(
+        2 ** (1 / 0.725), rel=1e-6)
 
 
 def test_dnp_alternative_placement_is_a_warning():

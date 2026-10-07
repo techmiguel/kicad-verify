@@ -245,7 +245,8 @@ def test_kicad9_track_nets_resolve_through_the_net_table(tmp_path):
     f.write_text(KICAD9_PCB, encoding="utf-8")
     b = board.load(f)
     assert [t["net"] for t in b["tracks"]] == ["+5V", "GND", "+5V"] and b["vias"][0]["net"] == "GND"
-    res = {r.check_id: r for r in board.run(b, "t", {"root": tmp_path, "params": {}, "pins": {}})}
+    res = {r.check_id: r for r in board.run(b, "t", {"root": tmp_path, "params": {"min_power_width_mm": 0.25},
+                                                       "pins": {}})}
     # before: tracks were on nets "2" and "1", so no power net was found and the width check passed
     assert [v["text"] for v in res["PCB-WIDTH-001"].violations] == ["+5V: 0.15 mm (thin tracks reach R1.1)"]
     # the In1.Cu track under the screw head is not in the keep-out; the B.Cu track and the via are

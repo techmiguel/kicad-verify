@@ -73,8 +73,8 @@ checks:
     layer: board
     modes: [fast, full]
     inputs: [.kicad_pcb]
-    covers: Tracks narrower than min_power_width_mm on nets whose name looks like power, except a rail's control or status signals (`VBUS_EN`, `VIN_SENSE`); names the pads the thin tracks reach
-    limits: Real current capacity (copper weight, length, temperature rise); power nets with unusual names (power_net_patterns); planes and zones
+    covers: On nets whose name looks like power (not a rail's control or status signals such as `VBUS_EN`, `VIN_SENSE`), chains of tracks narrower than the limit, leaving out stubs that only reach capacitors or test points. The limit is the IPC-2221 width for the net's declared current (params.net_currents) with the board's stackup copper thickness and width_temp_rise_c, else the project's min_power_width_mm; with neither, a net with tracks under power_review_width_mm is a coverage gap asking for its current. Findings name the pads the thin tracks reach
+    limits: Which branch of a net carries the declared current (every non-stub thin chain is judged against the whole net current); planes and zones; via current; power nets with unusual names (power_net_patterns); IPC-2221 is conservative for short tracks
   PCB-PINS-001:
     title: Critical pins vs pins.yaml
     layer: board
