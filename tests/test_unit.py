@@ -252,3 +252,16 @@ def test_kicad9_track_nets_resolve_through_the_net_table(tmp_path):
     # the In1.Cu track under the screw head is not in the keep-out; the B.Cu track and the via are
     assert sorted(v["text"] for v in res["PCB-KEEPOUT-001"].violations) == [
         "H1: track +5V (B.Cu) inside the Ø6.0 mm keep-out", "H1: via GND inside the Ø6.0 mm keep-out"]
+
+
+def test_padnet_leaves_pads_without_a_symbol_pin_to_pinmap():
+    from kicadverify.checks import board
+    # SCD41: the symbol has the used pins only; DNC pads 1-5 have no pin and no net
+    fp = _fp("U5", "Sensor:SCD4x", [(str(n), None, "smd") for n in range(1, 6)] + [("6", "GND", "smd"),
+                                                                                    ("7", None, "smd")])
+    nl = {"components": {"U5": {"pins": {"6": {}, "7": {}}}}, "pin_net": {}}
+    b = {"footprints": [fp], "tracks": [], "vias": []}
+    res = {r.check_id: r for r in board.run(b, "t", {"root": ".", "params": {}, "pins": {}}, nl=nl)}
+    assert [v["text"] for v in res["PCB-PADNET-001"].violations] == ["U5.7"]  # a pin of the symbol, no net
+    res = {r.check_id: r for r in board.run(b, "t", {"root": ".", "params": {}, "pins": {}})}
+    assert len(res["PCB-PADNET-001"].violations) == 6  # without the schematic every open pad is reported

@@ -66,7 +66,7 @@ checks:
     layer: board
     modes: [fast, full]
     inputs: [.kicad_pcb]
-    covers: Electrical pads without a net (plated mounting-hole pads excluded)
+    covers: Electrical pads without a net (plated mounting-hole pads excluded; a pad that is no pin of its symbol is reported once, by PCB-PINMAP-001)
     limits: Whether the pin was meant to be NC (each one must be waived with the reason)
   PCB-WIDTH-001:
     title: Power track width

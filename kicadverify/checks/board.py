@@ -349,7 +349,7 @@ def _norm(n):
     return (n or "").lstrip("/").upper()
 
 
-def run(board, label, proj, pcb=None):
+def run(board, label, proj, pcb=None, nl=None):
     root, params, pins = proj["root"], proj["params"], proj["pins"]
     res = []
 
@@ -378,9 +378,12 @@ def run(board, label, proj, pcb=None):
                                   for fp in nomodel],
                       coverage=coverage("footprints", len(board["footprints"]))))
 
+    # a pad that is no pin of its symbol is PCB-PINMAP-001's finding; reported once, there
+    sym = {ref: set(c["pins"]) for ref, c in (nl or {}).get("components", {}).items() if c.get("pins")}
     electrical = [(fp["ref"], p) for fp in board["footprints"] for p in fp["pads"]
                   if p["type"] in ("smd", "thru_hole") and p["number"]
-                  and "mountinghole" not in fp["name"].lower()]  # a plated mounting hole is not a pin
+                  and "mountinghole" not in fp["name"].lower()  # a plated mounting hole is not a pin
+                  and (fp["ref"] not in sym or p["number"] in sym[fp["ref"]])]
     nonet = [(r, p["number"]) for r, p in electrical if not p["net"]]
     res.append(Result("PCB-PADNET-001", WARN if nonet else PASS,
                       f"{label}: {count(len(nonet), 'pad')} without a net (fine only if the pin is NC)",

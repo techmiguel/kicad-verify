@@ -70,7 +70,7 @@ def checks(root, proj, mode):
         if k["pcb"].exists():
             try:
                 b = board_mod.load(k["pcb"])
-                results += board_mod.run(b, label, proj, k["pcb"])
+                results += board_mod.run(b, label, proj, k["pcb"], nl)
                 results += parity.run(b, nl, label)
                 results += dfm.run(b, k["pro"], label, params, k["pcb"])
                 results += isolation.run(b, k["pro"], label, params, k["pcb"])
