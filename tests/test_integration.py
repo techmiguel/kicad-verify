@@ -72,6 +72,8 @@ def test_reference_board_passes_fab_gate(board):
     hyg = next(r for r in rep["results"] if r["check"] == "PCB-HYGIENE-001" and "ERC" in r["detail"])
     assert hyg["status"] == "WARN" and hyg["violations"]
     assert not any(r["check"] == "WAIVERS" for r in rep["results"])  # no stale waiver left
+    stale = next(r for r in rep["results"] if r["check"] == "FAB-STALE-001")
+    assert "2 Gerber sets compared" in stale["detail"]  # fabrication/gerbers and gerbers_JLCPCB.zip
     assert (board / "verification" / "pcb" / "reports" / "evidence" / "rele-esp12f.drc.json").exists()
     assert cli.main(["verify", str(board), "--gate", "fab", "--fast"]) == 1  # fast mode cannot clear fab
 
@@ -103,6 +105,23 @@ def test_stale_check_ignores_the_last_plot_settings(board, tmp_path):
     stale = {r.check_id: r for r in fab.gerbers(pcb, b, files, "t")}["FAB-STALE-001"]
     assert stale.status == "PASS", stale.detail
     assert stale.coverage["total"] >= 5 and not stale.coverage["unchecked"]
+
+
+def test_stale_archive_next_to_fresh_gerbers(board, tmp_path):
+    """The loose Gerbers were re-exported after a change; the zip uploaded to the fab was not."""
+    d = fixtures.copy_of(board, tmp_path / "stale_zip")
+    shutil.copytree(REFERENCE, d / "verification", dirs_exist_ok=True)
+    assert run_seeded.apply(d, run_seeded.MUTATIONS["gerbers_stale"][0])
+    out = d / "fabrication" / "gerbers"
+    for f in out.iterdir():
+        if f.suffix.lower() in (".gbr", ".gbrjob") or f.suffix.lower().startswith(".g"):
+            f.unlink()
+    subprocess.run([config.KICAD_CLI, "pcb", "export", "gerbers", "-o", str(out), str(d / "rele-esp12f.kicad_pcb")],
+                   check=True, capture_output=True, timeout=300)
+    rep, _ = analyse(d, "full")
+    stale = next(r for r in rep["results"] if r["check"] == "FAB-STALE-001")
+    assert stale["status"] == "FAIL" and stale["violations"]
+    assert all(v["text"].startswith("[gerbers_JLCPCB.zip]") for v in stale["violations"]), stale["violations"]
 
 
 def test_attestation_on_real_board(board):

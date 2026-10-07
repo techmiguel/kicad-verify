@@ -7,9 +7,11 @@ drill diameters changed after the outputs were exported.
 import csv
 import math
 import re
+import shutil
 import statistics
 import subprocess
 import tempfile
+import zipfile
 from collections import Counter
 from pathlib import Path
 
@@ -23,15 +25,65 @@ GERBER_EXT = (".gbr", ".gtl", ".gbl", ".gts", ".gbs", ".gto", ".gbo", ".gtp", ".
 
 
 # ---------------------------------------------------------------- discovery
-def find_outputs(root, params):
-    """Fabrication files under params.fab.dir, or anywhere in the project."""
+def _is_gerber(name):
+    s = Path(name).suffix.lower()
+    return s in GERBER_EXT or (s.startswith(".g") and len(s) == 4 and s[2:].isdigit())
+
+
+def _fab_member(name):
+    return _is_gerber(name) or Path(name).suffix.lower() == ".drl"
+
+
+def archives(root, params):
+    """Zip archives holding Gerber or drill files (what is uploaded to the fab)."""
+    fab = params.get("fab") or {}
+    root = Path(root)
+    base = root / fab["dir"] if fab.get("dir") else root
+    out = []
+    for f in walk(base, 4):
+        if f.suffix.lower() == ".zip":
+            try:
+                with zipfile.ZipFile(f) as z:
+                    if any(_fab_member(n) for n in z.namelist()):
+                        out.append(f)
+            except (zipfile.BadZipFile, OSError):
+                continue
+    return out
+
+
+def _unzip(zf, dest):
+    """Gerber and drill members of `zf`, flattened into dest/<zip name>/ (names only: no paths from the
+    archive are used, so a member cannot be written outside dest)."""
+    out = []
+    target = Path(dest) / Path(zf).name
+    if target.exists():
+        shutil.rmtree(target)
+    target.mkdir(parents=True)
+    with zipfile.ZipFile(zf) as z:
+        for info in z.infolist():
+            name = Path(info.filename).name
+            if info.is_dir() or not name or not _fab_member(name):
+                continue
+            path = target / name
+            path.write_bytes(z.read(info))
+            out.append(path)
+    return out
+
+
+def find_outputs(root, params, unzip_to=None):
+    """Fabrication files under params.fab.dir, or anywhere in the project. With `unzip_to`, the Gerber
+    and drill files inside zip archives are extracted there and included, one set per archive."""
     fab = params.get("fab") or {}
     root = Path(root)
     gerbers, drills, boms, cpls = [], [], [], []
     base = root / fab["dir"] if fab.get("dir") else root
-    for f in walk(base, 4):
+    files = list(walk(base, 4))
+    if unzip_to:
+        for zf in archives(root, params):
+            files += _unzip(zf, unzip_to)
+    for f in files:
         s, n = f.suffix.lower(), f.name.lower()
-        if s in GERBER_EXT or (s.startswith(".g") and len(s) == 4 and s[2:].isdigit()):
+        if _is_gerber(f.name):
             gerbers.append(f)
         elif s == ".drl":
             drills.append(f)
@@ -118,26 +170,38 @@ def _plot_layer(func):
     return "Edge.Cuts" if parts[0] == "Profile" else None
 
 
+def output_sets(files):
+    """{set name: files}: the files of one export, i.e. one directory or one zip archive. Two exports
+    side by side (loose files and the zip that was uploaded) are checked one against the other's PCB,
+    never merged: a stale archive next to fresh loose files is exactly what must be caught."""
+    groups = {}
+    for f in files:
+        groups.setdefault(Path(f).parent, []).append(f)
+    names = [d.name for d in groups]
+    return {(d.name if names.count(d.name) == 1 else str(d)): v for d, v in sorted(groups.items())}
+
+
 def gerbers(pcb, board, files, label):
-    res = []
     if not files:
         return [not_verifiable("FAB-GERBER-001", f"{label}: no Gerber files in the project (not exported yet)",
                                "export the Gerbers (or set params.fab.dir)"),
                 not_verifiable("FAB-STALE-001", f"{label}: no Gerber files to compare with the PCB")]
-    have = _gerber_sets(files)
-    funcs = set(have)
+    sets = {name: _gerber_sets(fs) for name, fs in output_sets(files).items()}
+    tag = (lambda name: f"[{name}] ") if len(sets) > 1 else (lambda name: "")
     ncu = len(board["copper_layers"]) or 2
     copper = ["Copper,L1,Top"] + [f"Copper,L{i},Inr" for i in range(2, ncu)] + [f"Copper,L{ncu},Bot"]
     need = [copper[0], copper[-1], "Soldermask,Top", "Soldermask,Bot", "Profile,NP"]
-    missing = [n for n in need if n not in funcs]
-    res.append(Result("FAB-GERBER-001", FAIL if missing else PASS,
-                      f"{label}: {count(len(missing), 'mandatory Gerber layer')} missing",
-                      violations=[{"key": vkey("gerb", n), "text": n} for n in missing],
-                      evidence=list(files), coverage=coverage("mandatory layers", len(need))))
+    missing = [tag(name) + n for name, have in sets.items() for n in need if n not in have]
+    res = [Result("FAB-GERBER-001", FAIL if missing else PASS,
+                  f"{label}: {count(len(missing), 'mandatory Gerber layer')} missing"
+                  + (f" ({count(len(sets), 'Gerber set')})" if len(sets) > 1 else ""),
+                  violations=[{"key": vkey("gerb", n), "text": n} for n in missing],
+                  evidence=list(files), coverage=coverage("mandatory layers", len(need) * len(sets)))]
     # freshness: re-plot with kicad-cli and compare functional geometry per layer. The layers and the
     # format are given explicitly: the board's stored plot settings are those of the LAST plot, which
     # may have been a PDF or a copper-only set (kicad-cli then writes PDF content under .gbr names)
-    layers = sorted({ly for ly in map(_plot_layer, set(have) | set(copper) | set(need)) if ly})
+    exported = set().union(*sets.values())
+    layers = sorted({ly for ly in map(_plot_layer, exported | set(copper) | set(need)) if ly})
     args = [config.KICAD_CLI, "pcb", "export", "gerbers", "-l", ",".join(layers), "-o", "{td}", str(pcb)]
     if board.get("plot_aux_origin"):
         args.insert(-1, "--use-drill-file-origin")
@@ -156,29 +220,30 @@ def gerbers(pcb, board, files, label):
     ox, oy = board["aux_origin"] if board.get("plot_aux_origin") else (0.0, 0.0)
     npth = {(p["x"] - ox, -(p["y"] - oy)) for fp in board["footprints"] for p in fp["pads"]
             if p["type"] == "np_thru_hole"}
-    diffs, gap = [], []
-    for func, coords in fresh.items():
-        if func in have:
-            ref = have[func]
-            if func.startswith(("Soldermask", "Paste")) and npth:
-                coords = {c for c in coords if _unmatched([c], npth)}
-                ref = {c for c in ref if _unmatched([c], npth)}
-            extra, lost = _unmatched(coords, ref), _unmatched(ref, coords)
-            if extra or lost:
-                diffs.append(f"{func}: {extra} items new on the PCB, {lost} items no longer on the PCB")
-        elif coords:  # an empty layer (e.g. bottom paste with no bottom SMD) needs no export
-            gap.append({"key": vkey("stalegap", func),
-                        "text": f"{func}: plotted from the PCB, not in the exported set"})
-    for func in [f for f in set(have) - set(fresh) if have[f]]:
-        gap.append({"key": vkey("stalegap", func),
-                    "text": f"{func}: exported, not compared (no KiCad layer re-plots it)"})
+    diffs, gap, total = [], [], 0
+    for name, have in sets.items():
+        total += len({f for f in set(have) | set(fresh) if have.get(f) or fresh.get(f)})
+        for func, coords in fresh.items():
+            if func in have:
+                ref = have[func]
+                if func.startswith(("Soldermask", "Paste")) and npth:
+                    coords = {c for c in coords if _unmatched([c], npth)}
+                    ref = {c for c in ref if _unmatched([c], npth)}
+                extra, lost = _unmatched(coords, ref), _unmatched(ref, coords)
+                if extra or lost:
+                    diffs.append(f"{tag(name)}{func}: {extra} items new on the PCB, {lost} items no longer on the PCB")
+            elif coords:  # an empty layer (e.g. bottom paste with no bottom SMD) needs no export
+                gap.append({"key": vkey("stalegap", *([name] if len(sets) > 1 else []), func),
+                            "text": f"{tag(name)}{func}: plotted from the PCB, not in the exported set"})
+        for func in [f for f in set(have) - set(fresh) if have[f]]:
+            gap.append({"key": vkey("stalegap", *([name] if len(sets) > 1 else []), func),
+                        "text": f"{tag(name)}{func}: exported, not compared (no KiCad layer re-plots it)"})
     res.append(Result("FAB-STALE-001", FAIL if diffs else PASS,
                       f"{label}: {count(len(diffs), 'Gerber layer')} not matching the current PCB"
-                      + (" (re-export them)" if diffs else ""),
+                      + (" (re-export them)" if diffs else "")
+                      + (f" ({count(len(sets), 'Gerber set')} compared)" if len(sets) > 1 else ""),
                       violations=[{"key": vkey("stale", d.split(':')[0]), "text": d} for d in diffs],
-                      evidence=list(files),
-                      coverage=coverage("Gerber layers",
-                                        len({f for f in set(have) | set(fresh) if have.get(f) or fresh.get(f)}), gap)))
+                      evidence=list(files), coverage=coverage("Gerber layers", total, gap)))
     return res
 
 
@@ -211,9 +276,7 @@ def _drill_holes(files):
     return holes, decimal
 
 
-def drills(board, files, label):
-    if not files:
-        return [not_verifiable("FAB-DRILL-001", f"{label}: no drill files", "export the drill files")]
+def _drill_set(board, files, label):
     want = []
     for fp in board["footprints"]:
         for p in fp["pads"]:
@@ -255,6 +318,24 @@ def drills(board, files, label):
                                for d in diffs],
                    evidence=[str(f) for f in files], coverage=coverage("drilled holes", len(want) + (1 if gap else 0),
                                                                         gap))]
+
+
+def drills(board, files, label):
+    if not files:
+        return [not_verifiable("FAB-DRILL-001", f"{label}: no drill files", "export the drill files")]
+    sets = output_sets(files)
+    if len(sets) == 1:
+        return [_drill_set(board, files, label)[0]]
+    # several exports: each is compared with the PCB on its own (merged, every hole counts twice)
+    res = {name: _drill_set(board, fs, label)[0] for name, fs in sets.items()}
+    viol = [{"key": vkey(name, v["key"]), "text": f"[{name}] {v['text']}"}
+            for name, r in res.items() for v in r.violations]
+    gaps = [{"key": vkey(name, u["key"]), "text": f"[{name}] {u['text']}"}
+            for name, r in res.items() for u in r.coverage["unchecked"]]
+    return [Result("FAB-DRILL-001", FAIL if viol else PASS,
+                   f"{label}: {count(len(viol), 'PCB/.drl drill mismatch')} in {count(len(sets), 'drill set')} "
+                   "(slots not compared)", violations=viol, evidence=[str(f) for f in files],
+                   coverage=coverage("drilled holes", sum(r.coverage["total"] for r in res.values()), gaps))]
 
 
 # ---------------------------------------------------------------- BOM / CPL
@@ -478,7 +559,7 @@ def cpl(board, files, label, tol):
 
 
 def run(root, pcb, board, label, params, mode):
-    g, dr, b, c = find_outputs(root, params)
+    g, dr, b, c = find_outputs(root, params, unzip_to=Path(root) / config.DIRNAME / "reports" / "unzipped")
     tol = float((params.get("fab") or {}).get("cpl_tol_mm", 0.5))
     res = []
     if mode == "full":

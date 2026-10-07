@@ -493,6 +493,32 @@ def test_kicad_happy_defaults_and_duplicates():
     assert forced["KH-PP-001"].status == FAIL
 
 
+def test_drill_sets_are_checked_one_by_one_and_zips_extract_safely(tmp_path):
+    import zipfile
+    f = tmp_path / "d.kicad_pcb"
+    f.write_text("""(kicad_pcb (general (thickness 1.6))
+ (layers (0 "F.Cu" signal) (2 "B.Cu" signal) (25 "Edge.Cuts" user))
+ (via (at 10 10) (size 0.6) (drill 0.3) (net "A")) (via (at 20 10) (size 0.6) (drill 0.3) (net "A")))""")
+    fresh = "M48\nMETRIC\nT1C0.300\n%\nG90\nT1\nX10.0Y-10.0\nX20.0Y-10.0\nM30\n"
+    (tmp_path / "out").mkdir()
+    (tmp_path / "out" / "b.drl").write_text(fresh)
+    # the uploaded archive was exported before the second via moved; members sit in a sub-folder and one
+    # tries to escape the extraction directory
+    with zipfile.ZipFile(tmp_path / "out" / "order.zip", "w") as z:
+        z.writestr("gerbers/b.drl", fresh.replace("X20.0Y-10.0", "X21.0Y-10.0"))
+        z.writestr("../../evil.drl", fresh)
+    b = board.load(f)
+    _, drl, _, _ = fab.find_outputs(tmp_path, {}, unzip_to=tmp_path / "unz")
+    assert not (tmp_path / "evil.drl").exists() and not (tmp_path.parent / "evil.drl").exists()
+    assert sorted(p.relative_to(tmp_path).as_posix() for p in drl) == [
+        "out/b.drl", "unz/order.zip/b.drl", "unz/order.zip/evil.drl"]
+    r = fab.drills(b, drl[:2], "t")[0]
+    # merged, every hole counted twice; one set at a time, only the stale archive fails
+    assert r.status == FAIL and [v["text"] for v in r.violations] == [
+        "[order.zip] hole Ø0.3 mm at (20.00, 10.00) on the PCB has no match in the .drl files"]
+    assert fab.archives(tmp_path, {}) == [tmp_path / "out" / "order.zip"]
+
+
 def _pro(tmp_path, min_clearance, classes, dru=None):
     pro = tmp_path / "x.kicad_pro"
     pro.write_text(json.dumps({"board": {"design_settings": {"rules": {"min_clearance": min_clearance}}},

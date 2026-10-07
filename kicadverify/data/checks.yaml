@@ -164,21 +164,21 @@ checks:
     layer: fab
     modes: [full]
     inputs: [Gerbers]
-    covers: Missing copper, mask or outline layers (X2 FileFunction)
+    covers: Missing copper, mask or outline layers (X2 FileFunction), in every export set (each directory of Gerbers and each zip archive holding them)
     limits: Paste and silkscreen (optional); Gerbers without X2 attributes
   FAB-STALE-001:
     title: Gerbers match the current PCB
     layer: fab
     modes: [full]
     inputs: [Gerbers, .kicad_pcb]
-    covers: Re-plots the exported layers with kicad-cli (explicit layers and Gerber format, not the board's last plot settings; drill/place origin when the board plots with it) and compares, within 6 µm whatever the exported precision or unit, the positions of apertures with a function (pads, tracks, vias, outline) and of every mask and paste opening
+    covers: For each export set (a directory of Gerbers, or a zip archive such as the one uploaded to the fab, compared separately), re-plots the exported layers with kicad-cli (explicit layers and Gerber format, not the board's last plot settings; drill/place origin when the board plots with it) and compares, within 6 µm whatever the exported precision or unit, the positions of apertures with a function (pads, tracks, vias, outline) and of every mask and paste opening
     limits: Legend (silkscreen) layers; aperture sizes (a pad resized in place, a mask expansion change); mask openings over non-plated holes (KiCad versions plot them differently); drill marks and other function-less apertures
   FAB-DRILL-001:
     title: Drill files match the PCB
     layer: fab
     modes: [fast, full]
     inputs: [.drl, .kicad_pcb]
-    covers: Drill diameters, counts and positions (within 0.02 mm, absolute or aux origin) vs the PCB
+    covers: Drill diameters, counts and positions (within 0.02 mm, absolute or aux origin) vs the PCB, for each export set (directory or zip archive) separately
     limits: Slots; plated/non-plated mix-ups; Excellon without a decimal point (diameters only, positions listed as unchecked)
   FAB-BOM-001:
     title: BOM matches the PCB
