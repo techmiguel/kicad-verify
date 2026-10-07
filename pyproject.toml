@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "kicad-verify"
-version = "0.3.0"
+version = "0.4.0"
 description = "Requirements-based verification for KiCad projects: every requirement has a source, a verification method, evidence, explicit coverage and a VERIFIED / FAILED / NOT_VERIFIABLE / NOT_RUN status; CI gates and release manifests"
 readme = "README.md"
 license = {text = "MIT"}

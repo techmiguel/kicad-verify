@@ -141,6 +141,15 @@ def thin_track(t):
     return t.replace("(width 0.25)", "(width 0.1)", 1)
 
 
+def gnd_near_mains(t):
+    """A GND track grown out of the B.Cu ground pour to 2.8 mm from L_IN: above the 2 mm MAINS net-class
+    clearance, below the 4 mm mains-to-low-voltage barrier."""
+    seg = ('\t(segment\n\t\t(start 129.6 141.0)\n\t\t(end 127.6 141.0)\n\t\t(width 0.25)\n\t\t(layer "B.Cu")\n'
+           '\t\t(net "GND")\n\t\t(uuid "00000000-0000-4000-8000-000000000002")\n\t)\n')
+    i = t.rfind("\t(embedded_fonts")
+    return t[:i] + seg + t[i:]
+
+
 PRO = "rele-esp12f.kicad_pro"
 # (files to edit, expected check, layer group)
 MUTATIONS = {
@@ -160,6 +169,10 @@ MUTATIONS = {
     "cpl_missing_K1": (csv_edit("CPL_JLCPCB.csv", drop_line("K1,")), "FAB-CPL-001", "fab"),
     "rules_clearance_relaxed": ({PRO: relax_rules}, "FAB-RULES-001", "fab"),
     "track_0.1mm": ({PCB: thin_track}, "FAB-DFM-001", "fab"),
+    "gnd_track_near_mains": ({PCB: gnd_near_mains}, "ISO-SEP-001", "layout"),
+    # the same track on a board whose .kicad_dru has no mains rule (the usual case): DRC is clean
+    "gnd_near_mains_no_dru_rule": ({PCB: gnd_near_mains, "rele-esp12f.kicad_dru": lambda t: "(version 1)\n"},
+                                   "ISO-SEP-001", "layout"),
     "bom_missing_C9": (csv_edit("BOM_JLCPCB.csv", lambda ls: [l for l in ls if ",C9," not in l]), "FAB-BOM-001", "fab"),
     # circuit (schematic and PCB updated consistently; parity cannot see them)
     "led_D2_reversed": (sch_rotate("D2"), "CIR-POL-001", "circuit"),

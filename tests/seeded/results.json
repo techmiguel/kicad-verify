@@ -399,6 +399,41 @@
       "fab_gate_blocked": true
     },
     {
+      "mutation": "gnd_track_near_mains",
+      "group": "layout",
+      "expected": "ISO-SEP-001",
+      "applied": true,
+      "deterministic": true,
+      "deterministic_checks": [
+        "FAB-STALE-001",
+        "ISO-SEP-001",
+        "PCB-DRC-001"
+      ],
+      "requirements_failed": [
+        "FAB-STALE-001",
+        "ISO-SEP-001",
+        "PCB-DRC-001"
+      ],
+      "fab_gate_blocked": true
+    },
+    {
+      "mutation": "gnd_near_mains_no_dru_rule",
+      "group": "layout",
+      "expected": "ISO-SEP-001",
+      "applied": true,
+      "deterministic": true,
+      "deterministic_checks": [
+        "FAB-STALE-001",
+        "ISO-SEP-001",
+        "PCB-DRC-001"
+      ],
+      "requirements_failed": [
+        "FAB-STALE-001",
+        "ISO-SEP-001"
+      ],
+      "fab_gate_blocked": true
+    },
+    {
       "mutation": "value_R9_schematic_only",
       "group": "layout",
       "expected": "PCB-PARITY-001",

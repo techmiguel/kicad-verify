@@ -6,6 +6,19 @@ params:
     dir: fabrication
   mounting_holes: {drill_mm: 2.2, tol_mm: 0.1, expected: [[151.2, 140.6], [163.9, 146.4]]}
   net_voltages: {"/L_IN": 156, "/L_F": 156, "/N": 0}
+  isolation:
+    barriers:
+      - name: mains to low voltage
+        a: {netclass: MAINS}
+        required_mm: 4.0
+        source: {kind: design_intent, ref: "Designer rule 'Mains 110 VAC to low voltage' (4 mm) in rele-esp12f.kicad_dru",
+                 file: rele-esp12f.kicad_dru}
+      - name: line to neutral
+        a: {nets: ["/L_IN", "/L_OUT", "/L_F"]}
+        b: {nets: ["/N"]}
+        required_mm: 2.0
+        source: {kind: design_intent, ref: "Designer rule 'Mains to mains' (2 mm) in rele-esp12f.kicad_dru",
+                 file: rele-esp12f.kicad_dru}
 requirements:
   - id: PRJ-PWR-001
     text: "The ESP-12F module is supplied from +3V3 on its VCC pin"
