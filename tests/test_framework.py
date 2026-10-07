@@ -193,6 +193,10 @@ def test_review_reused_only_for_same_design_and_requirements(tmp_path):
     assert review.load_current(proj, dh, "RH")[0][0].check_id == "M"
     assert review.load_current(proj, dh, "OTHER")[0] is None
     assert review.load_current(proj, "x" * 40, "RH")[0] is None
+    # a reviewer that failed to run leaves a report with only REV-RUN: the next release must re-run it
+    review.write_report(proj, {"model": "m"}, [], [], [Result("REV-RUN", FAIL, "reviewer did not run: timeout")],
+                        "RH")
+    assert review.load_current(proj, dh, "RH")[0] is None
 
 
 # ------------------------------------------------------------------ DFM
@@ -375,6 +379,19 @@ def test_cpl_reads_kicad_ascii_pos_in_inches(assy_board, tmp_path):
     assert [v["text"].split(":")[0] for v in r.violations] == ["C1", "J1"]
 
 
+def test_smd_only_cpl_still_catches_an_smd_part_with_a_through_hole_attribute(assy_board, tmp_path):
+    # C1 has SMD pads but the through_hole attribute: an --smd-only export drops it
+    for fp in assy_board["footprints"]:
+        if fp["ref"] == "C1":
+            fp["attr"] = ["through_hole"]
+    f = tmp_path / "pos.csv"
+    f.write_text("Designator,Mid X,Mid Y,Layer,Rotation\nB1,10,20,top,0\nB2,12.54,20,top,0\nB3,15.08,20,top,0\n",
+                 encoding="utf-8")
+    texts = [v["text"] for v in fab.cpl(assy_board, [f], "t", 0.5)[0].violations]
+    assert "C1: missing from the CPL (wrong SMD/THT or 'exclude from position files' attribute?)" in texts
+    assert "J1: through-hole, not in the SMD-only CPL (fitted by hand?)" in texts
+
+
 def test_cpl_with_through_hole_parts_requires_all(assy_board, tmp_path):
     f = tmp_path / "cpl.csv"
     f.write_text("Designator,Mid X,Mid Y,Layer,Rotation\nB1,10,20,top,0\nB2,12.54,20,top,0\nC1,25.4,20,top,0\n"
@@ -426,6 +443,21 @@ def test_power_width_needs_a_current_and_skips_stubs_and_control_signals(tmp_pat
     # a fixed project limit keeps the former behaviour
     r = _width(tmp_path, {"min_power_width_mm": 0.25})
     assert sorted(v["text"] for v in r.violations) == ["+BATT: 0.2 mm (thin tracks reach R5.1)", "/Sense/+5V: 0.2 mm"]
+
+
+def test_power_width_inline_capacitors_and_declared_non_power_nets(tmp_path):
+    f = tmp_path / "w2.kicad_pcb"
+    f.write_text("""(kicad_pcb (general (thickness 1.6))
+ (layers (0 "F.Cu" signal) (2 "B.Cu" signal) (25 "Edge.Cuts" user))
+ (footprint "C:C" (layer "F.Cu") (at 10 10) (property "Reference" "C1")
+  (pad "1" smd rect (at 0 0) (size 0.6 0.6) (layers "F.Cu") (net "+5V")))
+ (footprint "C:C" (layer "F.Cu") (at 20 10) (property "Reference" "C2")
+  (pad "1" smd rect (at 0 0) (size 0.6 0.6) (layers "F.Cu") (net "+5V")))
+ (segment (start 10 10) (end 20 10) (width 0.15) (layer "F.Cu") (net "+5V"))
+ (segment (start 10 20) (end 30 20) (width 0.2) (layer "F.Cu") (net "/MOTOR_A")))""")
+    r = board.power_width(board.load(f), "t", {"net_currents": {"+5V": 2, "~/MOTOR.*": 3.5}})
+    # bulk C1 -> 0.15 mm -> C2 may carry the load: judged; /MOTOR_A is no power name but has a current
+    assert sorted(v["text"].split(":")[0] for v in r.violations) == ["+5V", "/MOTOR_A"]
 
 
 def test_ipc2221_width():
@@ -539,12 +571,19 @@ def test_drill_sets_are_checked_one_by_one_and_zips_extract_safely(tmp_path):
     _, drl, _, _ = fab.find_outputs(tmp_path, {}, unzip_to=tmp_path / "unz")
     assert not (tmp_path / "evil.drl").exists() and not (tmp_path.parent / "evil.drl").exists()
     assert sorted(p.relative_to(tmp_path).as_posix() for p in drl) == [
-        "out/b.drl", "unz/order.zip/b.drl", "unz/order.zip/evil.drl"]
+        "out/b.drl", "unz/out/order.zip/b.drl", "unz/out/order.zip/evil.drl"]
     r = fab.drills(b, drl[:2], "t")[0]
     # merged, every hole counted twice; one set at a time, only the stale archive fails
     assert r.status == FAIL and [v["text"] for v in r.violations] == [
         "[order.zip] hole Ø0.3 mm at (20.00, 10.00) on the PCB has no match in the .drl files"]
     assert fab.archives(tmp_path, {}) == [tmp_path / "out" / "order.zip"]
+    # an archive with the same name in another folder is extracted beside it, not over it
+    (tmp_path / "rev1").mkdir()
+    with zipfile.ZipFile(tmp_path / "rev1" / "order.zip", "w") as z:
+        z.writestr("b.drl", fresh)
+    _, drl, _, _ = fab.find_outputs(tmp_path, {}, unzip_to=tmp_path / "unz")
+    sets = fab.output_sets([d for d in drl if d.name == "b.drl"])
+    assert len(sets) == 3 and all(Path(f).exists() for fs in sets.values() for f in fs)
 
 
 def test_init_finds_outputs_outside_the_project_folder(tmp_path):
@@ -617,6 +656,13 @@ def test_assertions(synth_board):
         return assertions.evaluate({"id": "P", "check": spec}, _nl(), synth_board, "t")
     assert run({"type": "pin_net", "ref": "U1", "pin": 2, "net": "+3V3"}).status == PASS
     assert run({"type": "pin_net", "ref": "J1", "pin": 1, "net": "B"}).status == FAIL
+    # the schematic has J1 pin 1 on B but the PCB pad is on A: both sides are checked
+    nl = _nl()
+    nl["components"]["J1"] = {"value": "", "footprint": "Conn:J", "dnp": False, "fields": {}, "pins": {}}
+    nl["pin_net"][("J1", "1")] = "B"
+    r = assertions.evaluate({"id": "P", "check": {"type": "pin_net", "ref": "J1", "pin": 1, "net": "B"}}, nl,
+                            synth_board, "t")
+    assert r.status == FAIL and [v["text"] for v in r.violations] == ["J1.1: net A in the PCB, required B"]
     assert run({"type": "value", "ref": "U1", "matches": "~AMS1117-3\\.3"}).status == PASS
     r = run({"type": "field", "field": "MPN"})
     assert r.status == FAIL and "R1" in r.violations[0]["text"] and r.coverage["total"] == 2
@@ -912,6 +958,20 @@ def test_isolation_on_a_kicad9_board(iso_board, tmp_path):
     r = _iso(board.load(tmp_path / "k9.kicad_pcb"), pro,
              [{"name": "mains-LV", "a": {"netclass": "MAINS"}, "required_mm": 3.0}])
     assert r.status == FAIL and "2.25 mm" in r.violations[0]["text"]
+
+
+def test_isolation_measures_arcs_not_their_chord(iso_board, tmp_path):
+    """A mains arc bulging 5 mm toward a low-voltage track: its chord is 7 mm away, the arc 2 mm."""
+    _, pro = iso_board
+    (tmp_path / "arc.kicad_pcb").write_text("""(kicad_pcb (general (thickness 1.6))
+ (layers (0 "F.Cu" signal) (2 "B.Cu" signal) (25 "Edge.Cuts" user))
+ (arc (start 10 10) (mid 15 15) (end 20 10) (width 0.2) (layer "F.Cu") (net "/L"))
+ (segment (start 10 17) (end 20 17) (width 0.2) (layer "F.Cu") (net "GND"))
+ (gr_rect (start 0 0) (end 50 30) (layer "Edge.Cuts")))""")
+    b = board.load(tmp_path / "arc.kicad_pcb")
+    assert len([tr for tr in b["tracks"] if tr["net"] == "/L"]) == 16
+    r = _iso(b, pro, [{"name": "mains-LV", "a": {"netclass": "MAINS"}, "required_mm": 4.0}])
+    assert r.status == FAIL and "1.80 mm" in r.violations[0]["text"]
 
 
 def test_isolation_cutout_turns_shortfall_into_gap(iso_board, tmp_path):

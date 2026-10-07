@@ -54,7 +54,7 @@ def _drill(node):
     return (vals[0], vals[1] if len(vals) > 1 and dr[1] == "oval" else vals[0])
 
 
-# a chain of thin tracks that only reaches capacitors or test points is a stub (decoupling, probing):
+# a chain of thin tracks that ends at a single capacitor or test point is a stub (decoupling, probing):
 # no DC load current flows in it, so its width is not a current-capacity question
 STUB_REF = re.compile(r"^(C|CP|TP)\d+$", re.I)
 
@@ -111,7 +111,7 @@ def power_width(board, label, params):
     by_net = {}
     for tr in board["tracks"]:
         n = tr["net"] or ""
-        if tr["start"] and tr["end"] and (any(r.search(n) for r in extra)
+        if tr["start"] and tr["end"] and (any(r.search(n) for r in extra) or _current(params, n) is not None
                                           or (POWER_RE.search(n) and not SIGNAL_RE.search(n.rsplit("/", 1)[-1]))):
             by_net.setdefault(n, []).append(tr)
     viol, gaps = [], []
@@ -127,8 +127,10 @@ def power_width(board, label, params):
         open_pts, open_w = [], None
         for chain in _chains(thin):
             pts = [pt for tr in chain for pt in (tr["start"], tr["end"])]
-            refs = {r.split(".")[0] for r in _reached_pads(board, net, pts)}
-            if refs and all(STUB_REF.match(r) for r in refs):
+            # a dead end at ONE capacitor or test point: a thin track between two capacitors may be in
+            # the rail's main path (bulk capacitor, thin track, decoupling capacitor, load)
+            reached = _reached_pads(board, net, pts)
+            if len(reached) == 1 and STUB_REF.match(reached[0].split(".")[0]):
                 continue
             w = min(tr["width"] for tr in chain)
             where = _reaches(board, net, pts)
@@ -224,9 +226,17 @@ def load(pcb):
     for kind in ("segment", "arc"):
         for s in sexp.children(tree, kind):
             w = sexp.child(s, "width")
-            tracks.append({"net": _net(s, names), "width": sexp.num(w[1]) if w else 0.0,
-                           "layer": (sexp.child(s, "layer") or ["", ""])[1],
-                           "start": _xy(s, "start"), "end": _xy(s, "end")})
+            base = {"net": _net(s, names), "width": sexp.num(w[1]) if w else 0.0,
+                    "layer": (sexp.child(s, "layer") or ["", ""])[1]}
+            st, en, mid = _xy(s, "start"), _xy(s, "end"), _xy(s, "mid")
+            if kind == "arc" and st and en and mid:
+                # an arc bulges away from its chord (by 1.46 mm for a 90 degree arc of 5 mm radius):
+                # it is kept as the polyline through it, ends snapped to the arc's own end points
+                pts = _arc_pts(st, mid, en)
+                pts[0], pts[-1] = st, en
+                tracks += [{**base, "start": a, "end": b, "arc": True} for a, b in zip(pts, pts[1:], strict=False)]
+            else:
+                tracks.append({**base, "start": st, "end": en})
     vias = []
     for v in sexp.children(tree, "via"):
         d = _drill(v)

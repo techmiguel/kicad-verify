@@ -193,6 +193,14 @@ def test_pinmap_accepts_symbol_pins_drawn_on_a_shared_pad():
     nl["components"]["SW1"]["pins"] = pins
     r = parity.run(bad, nl, "t")[1]
     assert r.status == FAIL
+    # a QFN whose exposed pad (pin 33, GND) is missing from the footprint: pin 1 is GND too, on one pad
+    qpins = {"1": {"name": "GND", "type": "power_in"}, "2": {"name": "IO", "type": "bidirectional"},
+             "33": {"name": "GND", "type": "power_in"}}
+    qnl = {"components": {"U1": {"value": "MCU", "footprint": "Q:QFN-32", "pins": qpins}},
+           "pin_net": {("U1", "1"): "GND", ("U1", "2"): "/IO", ("U1", "33"): "GND"}}
+    qfn = {"footprints": [_fp("U1", "Q:QFN-32", [("1", "GND", "smd"), ("2", "/IO", "smd")], value="MCU")]}
+    r = parity.run(qfn, qnl, "t")[1]
+    assert r.status == FAIL and "U1: symbol pin 33 (GND) has no pad" in r.violations[0]["text"]
 
 
 def test_parity_compares_kicad_derived_net_names_by_members():
@@ -265,3 +273,14 @@ def test_padnet_leaves_pads_without_a_symbol_pin_to_pinmap():
     assert [v["text"] for v in res["PCB-PADNET-001"].violations] == ["U5.7"]  # a pin of the symbol, no net
     res = {r.check_id: r for r in board.run(b, "t", {"root": ".", "params": {}, "pins": {}})}
     assert len(res["PCB-PADNET-001"].violations) == 6  # without the schematic every open pad is reported
+
+
+def test_evidence_paths_are_relative_also_beside_the_project(tmp_path):
+    from kicadverify import evidence
+    (tmp_path / "hardware" / "kicad").mkdir(parents=True)
+    (tmp_path / "hardware" / "fab").mkdir()
+    f = tmp_path / "hardware" / "fab" / "x.zip"
+    f.write_bytes(b"x")
+    root = tmp_path / "hardware" / "kicad"
+    assert evidence.rel(f, root) == "../fab/x.zip"  # the same key on every checkout
+    assert evidence.rel(root / "a.kicad_pcb", root) == "a.kicad_pcb"

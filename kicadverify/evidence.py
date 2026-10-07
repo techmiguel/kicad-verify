@@ -1,6 +1,7 @@
 """Evidence records: files identified by path and SHA-256 at the moment they were used, so a report
 or a release manifest says exactly which bytes were verified."""
 import hashlib
+import os
 from pathlib import Path
 
 _CACHE = {}
@@ -23,10 +24,17 @@ def sha256(path):
 
 
 def rel(path, root):
+    """Path relative to the project root, with '..' for files beside it (outputs in ../fab), so a
+    manifest or an attestation names the same files on every machine. Absolute only when there is no
+    relative path (another drive)."""
+    p, r = Path(path).resolve(), Path(root).resolve()
     try:
-        return str(Path(path).resolve().relative_to(Path(root).resolve())).replace("\\", "/")
+        return str(p.relative_to(r)).replace("\\", "/")
     except ValueError:
-        return str(path).replace("\\", "/")
+        try:
+            return os.path.relpath(p, r).replace("\\", "/")
+        except ValueError:
+            return str(path).replace("\\", "/")
 
 
 def artifact(path, root):

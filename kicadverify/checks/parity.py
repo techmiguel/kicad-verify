@@ -47,19 +47,22 @@ def run(board, nl, label):
             diffs.append(f"{ref}: footprint {fp['name']} on PCB vs {c['footprint']} in schematic")
         if not same_value(c["value"], fp["value"]):
             diffs.append(f"{ref}: value {fp['value'] or '(empty)'} on PCB vs {c['value'] or '(empty)'} in schematic")
-        padnet = {}
+        padnet, pad_count = {}, {}
         for p in fp["pads"]:
             padnet.setdefault(p["number"], p["net"])
+            pad_count[p["number"]] = pad_count.get(p["number"], 0) + 1
         sym_pins = set(c["pins"])
         for pin in sym_pins:
             want = pin_net.get((ref, pin))
             if pin not in padnet:
-                # a symbol drawing one contact as several pins on the same net (a 4-pin switch on a
-                # 2-contact footprint) is fine when another pin of that net has a pad carrying it; a
-                # pad that is not a symbol pin (a renumbered pad) does not count
+                # a symbol drawing one contact as several pins on the same net, on a footprint drawing
+                # that contact as several pads with ONE number (a 4-pin switch symbol on the KMR2's
+                # pads 1, 1, 2, 2), is fine. A pad that is not a symbol pin (a renumbered pad) does not
+                # count, nor does a single pad of the same net: a QFN footprint without its exposed
+                # pad still fails although another GND pin has a pad
                 if want and not want.startswith("unconnected-") and any(
                         q != pin and q in padnet and pin_net.get((ref, q)) == want and padnet[q]
-                        and norm_net(padnet[q]) == norm_net(want) for q in sym_pins):
+                        and norm_net(padnet[q]) == norm_net(want) and pad_count[q] > 1 for q in sym_pins):
                     continue
                 pinmap.append(f"{ref}: symbol pin {pin} ({c['pins'][pin]['name'] or '-'}) has no pad in {fp['name']}")
                 continue

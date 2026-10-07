@@ -52,11 +52,13 @@ def archives(root, params):
     return out
 
 
-def _unzip(zf, dest):
-    """Gerber and drill members of `zf`, flattened into dest/<zip name>/ (names only: no paths from the
-    archive are used, so a member cannot be written outside dest)."""
+def _unzip(zf, dest, root):
+    """Gerber and drill members of `zf`, flattened into dest/<zip path relative to root>/ (two
+    archives with one name in different folders do not collide; member names only, so no path from
+    the archive can write outside dest)."""
     out = []
-    target = Path(dest) / Path(zf).name
+    rel = Path(os.path.relpath(Path(zf).resolve(), Path(root).resolve()))
+    target = Path(dest).joinpath(*[part if part != ".." else "_up" for part in rel.parts])
     if target.exists():
         shutil.rmtree(target)
     target.mkdir(parents=True)
@@ -120,7 +122,7 @@ def find_outputs(root, params, unzip_to=None):
     files = list(walk(base, 4))
     if unzip_to:
         for zf in archives(root, params):
-            files += _unzip(zf, unzip_to)
+            files += _unzip(zf, unzip_to, root)
     for f in files:
         s, n = f.suffix.lower(), f.name.lower()
         if _is_gerber(f.name):
@@ -561,7 +563,9 @@ def _cpl_check(board, f, tol):
     fitted = _fitted(board, "exclude_from_pos_files")
     # a placement file exported for SMD parts only (KiCad's --smd-only, the usual for machine assembly)
     # holds no through-hole part: those parts are then hand-fitted, which is a decision, not a mismatch
-    tht = {d for d, fp in want.items() if "smd" not in fp["attr"]}
+    # through-hole by its pads, not by its attribute: a wrong SMD/THT attribute is what drops an SMD part
+    # from a placement file, and must stay a mismatch
+    tht = {d for d, fp in want.items() if any(p["type"] == "thru_hole" for p in fp["pads"])}
     smd_only = bool(entries) and not tht & set(entries)
     for d in want:
         if d not in entries:
