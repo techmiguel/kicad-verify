@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 import yaml
 
+import kicadverify
 from kicadverify import cli, config, manifest, outputs, report, requirements as rq, review, signoff, waivers
 from kicadverify.checks import assertions, board, dfm
 from kicadverify.report import (FAIL, FAILED, NOT_RUN, NOT_VERIFIABLE, PASS, SKIP, VERIFIED, WARN, Result,
@@ -349,6 +350,7 @@ def test_init_ci_workflow(tmp_path):
     assert wf in created
     text = wf.read_text()
     assert "kicadverify verify hw --gate fab" in text and "{{path}}" not in text
+    assert f"kicad-verify@v{kicadverify.__version__}" in text and "{{version}}" not in text
     assert yaml.safe_load(text)["jobs"]["verify"]["steps"]
     assert (tmp_path / "hw" / "verification" / "pcb" / "project.yaml").read_text().startswith('name: "hw"')
 
