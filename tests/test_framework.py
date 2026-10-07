@@ -778,6 +778,23 @@ def test_isolation_netclass_selection(iso_board):
     assert r.status == PASS  # /L and /N only meet on B.Cu through J1.1: 20 - 10 - 1 - 0.5 = 8.5 mm
 
 
+def test_isolation_on_a_kicad9_board(iso_board, tmp_path):
+    """KiCad 9 writes track nets as numbers resolved through the net table: the same board must give
+    the same separation, or the mains tracks are not selected at all."""
+    _, pro = iso_board
+    k9 = ISO_PCB.replace('(layers (0 "F.Cu" signal)', '(net 0 "") (net 1 "/L") (net 2 "GND") (net 3 "/N") '
+                                                      '(net 4 "+5V")\n (layers (0 "F.Cu" signal)')
+    for i, n in enumerate(("/L", "GND", "/N"), 1):
+        k9 = k9.replace(f'(layer "{"F.Cu" if n != "/N" else "B.Cu"}") (net "{n}"))',
+                        f'(layer "{"F.Cu" if n != "/N" else "B.Cu"}") (net {i}))')
+    k9 = k9.replace('(net "/L"))\n  (pad "2"', '(net 1 "/L"))\n  (pad "2"').replace('(net "+5V"))', '(net 4 "+5V"))')
+    assert '(net "' not in k9
+    (tmp_path / "k9.kicad_pcb").write_text(k9)
+    r = _iso(board.load(tmp_path / "k9.kicad_pcb"), pro,
+             [{"name": "mains-LV", "a": {"netclass": "MAINS"}, "required_mm": 3.0}])
+    assert r.status == FAIL and "2.25 mm" in r.violations[0]["text"]
+
+
 def test_isolation_cutout_turns_shortfall_into_gap(iso_board, tmp_path):
     b, pro = iso_board
     slot = ISO_PCB.replace('(gr_rect (start 0 0) (end 50 30) (layer "Edge.Cuts"))',

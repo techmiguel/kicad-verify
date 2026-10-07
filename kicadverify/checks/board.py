@@ -14,12 +14,29 @@ POWER_RE = re.compile(r"(^|/)(\+|V)(\d|CC|DD|BUS|IN|BAT|SYS)|GND|VBAT|VMOT|VSYS"
 # (matched on the last path component, so a sheet named /Sense/ does not hide its rails)
 SIGNAL_RE = re.compile(r"[_\-.](N?EN|ENABLE|N?FAULT|N?FLT|PG|PGOOD|N?OK|SENSE|SNS|DET|DETECT|ADC|MON|STAT|STATUS"
                        r"|CTRL|CTL|ALERT|DIV)([_\-.]|$)", re.I)
-NO_MODEL_OK = ("TestPoint", "MountingHole", "Fiducial", "NetTie", "Logo", "Symbol")
+# footprints with no physical body to model, matched case-insensitively anywhere in the footprint name
+# (KiCad's Symbol:OSHW-Logo..., a project's LIBRESOLAR_LOGO, a Tag-Connect cable footprint)
+NO_MODEL_OK = ("testpoint", "mountinghole", "fiducial", "nettie", "logo", "symbol:", "solderjumper",
+               "solderwirepad", "tag-connect", "layermarker")
 
 
-def _net(node):
+def needs_model(fp):
+    """A footprint that places a body on the board: it has pads, is not board-only, and its name is
+    not one of the body-less kinds above."""
+    name = fp["name"].lower()
+    return bool(fp["pads"]) and "board_only" not in fp["attr"] and not any(k in name for k in NO_MODEL_OK)
+
+
+def _net(node, names=None):
+    """Net name of a pad, track, via or zone. KiCad 10 writes `(net "GND")`; KiCad 9 and earlier write
+    `(net 1 "GND")` on pads but only `(net 1)` on tracks, vias and zones, resolved through the board's
+    net table (`names`)."""
     net = sexp.child(node, "net")
-    return net[-1] if net and len(net) > 1 else None
+    if not net or len(net) < 2:
+        return None
+    if len(net) > 2:
+        return net[2] or None
+    return (names or {}).get(net[1], net[1]) or None
 
 
 def _xy(node, name):
@@ -57,6 +74,7 @@ def _reaches(board, net, points, limit=8):
 
 def load(pcb):
     tree = sexp.parse(Path(pcb).read_text(encoding="utf-8"))
+    names = {n[1]: n[2] for n in sexp.children(tree, "net") if len(n) > 2}  # KiCad <= 9 net table
     fps = []
     for fp in sexp.children(tree, "footprint"):
         at = sexp.child(fp, "at") or ["at", "0", "0"]
@@ -98,16 +116,16 @@ def load(pcb):
     for kind in ("segment", "arc"):
         for s in sexp.children(tree, kind):
             w = sexp.child(s, "width")
-            tracks.append({"net": _net(s), "width": sexp.num(w[1]) if w else 0.0,
+            tracks.append({"net": _net(s, names), "width": sexp.num(w[1]) if w else 0.0,
                            "layer": (sexp.child(s, "layer") or ["", ""])[1],
                            "start": _xy(s, "start"), "end": _xy(s, "end")})
     vias = []
     for v in sexp.children(tree, "via"):
         d = _drill(v)
         size = sexp.child(v, "size")
-        vias.append({"net": _net(v), "pos": _xy(v, "at"), "drill": d[0] if d else None,
+        vias.append({"net": _net(v, names), "pos": _xy(v, "at"), "drill": d[0] if d else None,
                      "size": sexp.num(size[1]) if size else 0.0})
-    zones = [{"net": (sexp.child(z, "net_name") or [None, None])[1] or _net(z),
+    zones = [{"net": (sexp.child(z, "net_name") or [None, None])[1] or _net(z, names),
               "layers": list((sexp.child(z, "layers") or sexp.child(z, "layer") or [])[1:])}
              for z in sexp.children(tree, "zone")]
     edge_segments = [s for fp in fps for s in fp["edges"]]
@@ -118,7 +136,7 @@ def load(pcb):
     edge = [p for s in edge_segments for p in s]
     zone_fills = []
     for z in sexp.children(tree, "zone"):
-        zn = (sexp.child(z, "net_name") or [None, None])[1] or _net(z)
+        zn = (sexp.child(z, "net_name") or [None, None])[1] or _net(z, names)
         for fpoly in sexp.children(z, "filled_polygon"):
             pts = sexp.child(fpoly, "pts")
             if pts:
@@ -239,8 +257,7 @@ def run(board, label, proj, pcb=None):
                           violations=[{"key": vkey("foot", n), "text": n} for n in bad],
                           coverage=coverage("footprints", len(used))))
 
-    nomodel = [fp for fp in board["footprints"] if not fp["models"] and "board_only" not in fp["attr"]
-               and not fp["name"].split(":")[-1].startswith(NO_MODEL_OK)]
+    nomodel = [fp for fp in board["footprints"] if not fp["models"] and needs_model(fp)]
     res.append(Result("PCB-MODEL-001", WARN if nomodel else PASS,
                       f"{label}: {count(len(nomodel), 'footprint')} without a 3D model (missing from the board STEP, "
                       "so enclosure fit cannot be checked for them)",
@@ -249,7 +266,8 @@ def run(board, label, proj, pcb=None):
                       coverage=coverage("footprints", len(board["footprints"]))))
 
     electrical = [(fp["ref"], p) for fp in board["footprints"] for p in fp["pads"]
-                  if p["type"] in ("smd", "thru_hole") and p["number"]]
+                  if p["type"] in ("smd", "thru_hole") and p["number"]
+                  and "mountinghole" not in fp["name"].lower()]  # a plated mounting hole is not a pin
     nonet = [(r, p["number"]) for r, p in electrical if not p["net"]]
     res.append(Result("PCB-PADNET-001", WARN if nonet else PASS,
                       f"{label}: {count(len(nonet), 'pad')} without a net (fine only if the pin is NC)",
@@ -330,7 +348,9 @@ def run(board, label, proj, pcb=None):
         for h in mhs:
             rk = h["drill"] / 2 + extra_r
             c = (h["x"], h["y"])
-            for t in board["tracks"]:
+            for t in board["tracks"]:  # an inner-layer track cannot touch a washer or a screw head
+                if t["layer"] not in ("F.Cu", "B.Cu"):
+                    continue
                 if t["start"] and t["end"] and (t["net"] != h["net"] or not h["net"]):
                     if _seg_dist(c, t["start"], t["end"]) - t["width"] / 2 < rk:
                         bad.append(f"{h['ref']}: track {t['net']} ({t['layer']}) inside the Ø{2 * rk:.1f} mm keep-out")

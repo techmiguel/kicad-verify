@@ -31,14 +31,14 @@ checks:
     layer: kicad
     modes: [fast, full]
     inputs: [.kicad_sch, .kicad_pcb]
-    covers: Same references, values, footprints and net per pin in schematic and PCB (values compared as numbers when both parse, so 4k7 = 4.7k = 4700 and 100n = 100nF)
+    covers: Same references, values, footprints and net per pin in schematic and PCB (values compared as numbers when both parse, so 4k7 = 4.7k = 4700 and 100n = 100nF; a net name KiCad derives from a pin, Net-(...) or unconnected-(...), is compared by the pins on it)
     limits: Errors present in both. Fields other than the value (MPN, voltage or tolerance fields). PCB-only parts (MountingHole, Fiducial, TestPoint, board_only) are ignored
   PCB-PINMAP-001:
     title: Symbol pin to footprint pad mapping
     layer: kicad
     modes: [fast, full]
     inputs: [.kicad_sch, .kicad_pcb]
-    covers: Symbol pins without a pad; electrical pads without a symbol pin (wrong package or numbering)
+    covers: Symbol pins without a pad (unless another pin of the same symbol on the same net has a pad carrying it: one contact drawn as two pins); electrical pads without a symbol pin (wrong package or numbering)
     limits: A pin number that exists in both but means something else (MOD-PINOUT-001)
   PCB-FOOT-001:
     title: Approved footprints
@@ -52,14 +52,14 @@ checks:
     layer: board
     modes: [fast, full]
     inputs: [.kicad_pcb]
-    covers: Footprints without a 3D model
+    covers: Footprints that place a body on the board (they have pads and are not logos, markings, test points, mounting holes, fiducials, net ties, solder jumpers or wire pads, Tag-Connect cable footprints) without a 3D model
     limits: A model of the wrong part or wrongly oriented
   PCB-PADNET-001:
     title: Pads without a net
     layer: board
     modes: [fast, full]
     inputs: [.kicad_pcb]
-    covers: Electrical pads without a net
+    covers: Electrical pads without a net (plated mounting-hole pads excluded)
     limits: Whether the pin was meant to be NC (each one must be waived with the reason)
   PCB-WIDTH-001:
     title: Power track width
@@ -87,7 +87,7 @@ checks:
     layer: board
     modes: [fast, full]
     inputs: [.kicad_pcb]
-    covers: Tracks, vias and pads of other nets inside the washer radius
+    covers: Outer-layer tracks, vias and pads of other nets inside the washer radius
     limits: Copper zones; screw heads larger than the configured radius
   CIR-POL-001:
     title: Polarity (LEDs, diodes, clamps, polarized capacitors)

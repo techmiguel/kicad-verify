@@ -169,3 +169,85 @@ def test_evidence_must_be_verbatim(tmp_path):
     assert not bad and "not found" in why
     short, _ = review.check_evidence({"file": "f.txt", "quote": "EN"}, tmp_path, tmp_path)
     assert not short
+
+
+def _fp(ref, name, pads, attr=(), value=""):
+    return {"ref": ref, "name": name, "value": value, "attr": list(attr), "dnp": False, "models": [],
+            "pads": [{"number": n, "net": net, "type": ty, "drill": 1.0 if "hole" in ty else None, "drill2": None,
+                      "x": 0.0, "y": 0.0, "size": (1.0, 1.0), "layers": ["F.Cu"]} for n, net, ty in pads]}
+
+
+def test_pinmap_accepts_symbol_pins_drawn_on_a_shared_pad():
+    # a 4-pin push-button symbol (1/4 and 2/3 are the two contacts) on the 2-contact KMR2 footprint
+    pins = {n: {"name": n, "type": "passive"} for n in "1234"}
+    nl = {"components": {"SW1": {"value": "SW", "footprint": "B:KMR2", "pins": pins}},
+          "pin_net": {("SW1", "1"): "GND", ("SW1", "4"): "GND", ("SW1", "2"): "/EN", ("SW1", "3"): "/EN"}}
+    ok = {"footprints": [_fp("SW1", "B:KMR2", [("1", "GND", "smd"), ("1", "GND", "smd"),
+                                                ("2", "/EN", "smd"), ("2", "/EN", "smd")], value="SW")]}
+    r = parity.run(ok, nl, "t")[1]
+    assert r.status == PASS, r.violations
+    # a renumbered pad keeps its net but is no symbol pin: still a missing pad
+    bad = {"footprints": [_fp("SW1", "B:KMR2", [("1", "GND", "smd"), ("2", "/EN", "smd"), ("9", "/EN", "smd")],
+                              value="SW")]}
+    nl["pin_net"] = {("SW1", "1"): "GND", ("SW1", "2"): "GND", ("SW1", "3"): "/EN", ("SW1", "4"): "/EN"}
+    nl["components"]["SW1"]["pins"] = pins
+    r = parity.run(bad, nl, "t")[1]
+    assert r.status == FAIL
+
+
+def test_parity_compares_kicad_derived_net_names_by_members():
+    pins = {p: {"name": "VBUS", "type": "passive"} for p in ("A4", "A9", "B4", "B9")}
+    pins["A1"] = {"name": "GND", "type": "passive"}
+    nl = {"components": {"J3": {"value": "USB_C", "footprint": "C:USB", "pins": pins}},
+          "pin_net": {**{("J3", p): "unconnected-(J3-VBUS-PadA4)" for p in ("A4", "A9", "B4", "B9")},
+                      ("J3", "A1"): "GND"}}
+    pads = [(p, "Net-(J3-VBUS-PadA4)", "smd") for p in ("A4", "A9", "B4", "B9")] + [("A1", "GND", "smd")]
+    r = parity.run({"footprints": [_fp("J3", "C:USB", pads, value="USB_C")]}, nl, "t")[0]
+    assert r.status == PASS, r.violations
+    # the same name change with one pin moved to another net is a real difference
+    pads[0] = ("A4", "GND", "smd")
+    r = parity.run({"footprints": [_fp("J3", "C:USB", pads, value="USB_C")]}, nl, "t")[0]
+    assert r.status == FAIL and len(r.violations) == 4
+
+
+def test_model_and_padnet_skip_bodyless_and_mounting_footprints():
+    from kicadverify.checks import board
+    fps = [_fp("LOGO2", "LibreSolar:LIBRESOLAR_LOGO", [], ["through_hole"]),
+           _fp("U1", "bitaxe:polarity", [], ["smd"]),
+           _fp("J2", "bitaxe:Tag-Connect_TC2030-IDC-NL", [("1", "/EN", "connect")]),
+           _fp("H1", "MountingHole:MountingHole_3.2mm_M3_Pad", [("1", None, "thru_hole")]),
+           _fp("R1", "R:R_0603", [("1", "A", "smd"), ("2", None, "smd")])]
+    b = {"footprints": fps, "tracks": [], "vias": []}
+    res = {r.check_id: r for r in board.run(b, "t", {"root": ".", "params": {}, "pins": {}})}
+    assert [v["text"] for v in res["PCB-MODEL-001"].violations] == ["R1 (R:R_0603)"]
+    assert [v["text"] for v in res["PCB-PADNET-001"].violations] == ["R1.2"]
+
+
+KICAD9_PCB = """(kicad_pcb (version 20241229) (generator "pcbnew") (generator_version "9.0")
+ (general (thickness 1.6))
+ (layers (0 "F.Cu" signal) (4 "In1.Cu" signal) (2 "B.Cu" signal) (25 "Edge.Cuts" user))
+ (net 0 "")
+ (net 1 "GND")
+ (net 2 "+5V")
+ (footprint "MountingHole:MountingHole_3.2mm_M3" (layer "F.Cu") (at 10 10) (property "Reference" "H1")
+  (pad "" np_thru_hole circle (at 0 0) (size 3.2 3.2) (drill 3.2) (layers "*.Cu" "*.Mask")))
+ (footprint "R:R_0603" (layer "F.Cu") (at 30 10) (property "Reference" "R1")
+  (pad "1" smd rect (at 0 0) (size 0.8 0.8) (layers "F.Cu") (net 2 "+5V")))
+ (segment (start 30 10) (end 40 10) (width 0.15) (layer "F.Cu") (net 2))
+ (segment (start 8 12) (end 14 12) (width 0.3) (layer "In1.Cu") (net 1))
+ (segment (start 8 11.5) (end 14 11.5) (width 0.3) (layer "B.Cu") (net 2))
+ (via (at 10 13) (size 0.6) (drill 0.3) (layers "F.Cu" "B.Cu") (net 1)))"""
+
+
+def test_kicad9_track_nets_resolve_through_the_net_table(tmp_path):
+    from kicadverify.checks import board
+    f = tmp_path / "k9.kicad_pcb"
+    f.write_text(KICAD9_PCB, encoding="utf-8")
+    b = board.load(f)
+    assert [t["net"] for t in b["tracks"]] == ["+5V", "GND", "+5V"] and b["vias"][0]["net"] == "GND"
+    res = {r.check_id: r for r in board.run(b, "t", {"root": tmp_path, "params": {}, "pins": {}})}
+    # before: tracks were on nets "2" and "1", so no power net was found and the width check passed
+    assert [v["text"] for v in res["PCB-WIDTH-001"].violations] == ["+5V: 0.15 mm (thin tracks reach R1.1)"]
+    # the In1.Cu track under the screw head is not in the keep-out; the B.Cu track and the via are
+    assert sorted(v["text"] for v in res["PCB-KEEPOUT-001"].violations) == [
+        "H1: track +5V (B.Cu) inside the Ø6.0 mm keep-out", "H1: via GND inside the Ø6.0 mm keep-out"]
