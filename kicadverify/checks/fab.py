@@ -593,7 +593,10 @@ def _cpl_check(board, f, tol):
     # holds no through-hole part: those parts are then hand-fitted, which is a decision, not a mismatch
     # through-hole by its pads, not by its attribute: a wrong SMD/THT attribute is what drops an SMD part
     # from a placement file, and must stay a mismatch
-    tht = {d for d, fp in want.items() if any(p["type"] == "thru_hole" for p in fp["pads"])}
+    # (only plated holes: a USB connector with through-hole shield pegs or a module with a thermal-via
+    # pad is placed by the machine with the SMD parts)
+    tht = {d for d, fp in want.items() if any(p["type"] == "thru_hole" for p in fp["pads"])
+           and not any(p["type"] == "smd" for p in fp["pads"])}
     smd_only = bool(entries) and not tht & set(entries)
     for d in want:
         if d not in entries:

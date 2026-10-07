@@ -380,10 +380,13 @@ def test_cpl_reads_kicad_ascii_pos_in_inches(assy_board, tmp_path):
 
 
 def test_smd_only_cpl_still_catches_an_smd_part_with_a_through_hole_attribute(assy_board, tmp_path):
-    # C1 has SMD pads but the through_hole attribute: an --smd-only export drops it
+    # C1 has SMD pads but the through_hole attribute: an --smd-only export drops it. B1 is an SMD
+    # part with a plated peg (a USB connector shell): placed by machine, it keeps the file SMD-only
     for fp in assy_board["footprints"]:
         if fp["ref"] == "C1":
             fp["attr"] = ["through_hole"]
+        if fp["ref"] == "B1":
+            fp["pads"].append({**fp["pads"][0], "number": "SH", "type": "thru_hole", "drill": 0.6})
     f = tmp_path / "pos.csv"
     f.write_text("Designator,Mid X,Mid Y,Layer,Rotation\nB1,10,20,top,0\nB2,12.54,20,top,0\nB3,15.08,20,top,0\n",
                  encoding="utf-8")
