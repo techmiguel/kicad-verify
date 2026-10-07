@@ -130,6 +130,9 @@ requirements:
   - id: ISO-SEP-001
     text: "Copper on each side of every declared isolation barrier (mains to low voltage, between mains conductors...) is at least the required distance apart on every layer"
     source: {kind: regulatory, ref: "Each barrier in params.isolation.barriers cites the standard and table its distance comes from"}
+  - id: BRD-LINK-001
+    text: "Every declared board-to-board connection joins compatible pins: same voltage, no two outputs, no signal into an unconnected pin, matching pin counts"
+    source: {kind: design_intent, ref: "Board-to-board connections declared in params.interconnects (connector, mating board and connector, pin mapping)"}
   - id: FAB-GERBER-001
     text: "Gerber set has every mandatory layer"
     source: {kind: fab_capability, ref: "Fab order requirements: copper, mask and outline layers (Gerber X2)"}

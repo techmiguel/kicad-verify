@@ -336,3 +336,83 @@ def test_dfm_tolerance_of_a_tenth_of_a_mil():
                   {"net": "A", "pos": (5, 0), "drill": 0.3, "size": 0.49}]}   # 0.095 mm: really short
     r = dfm.geometry(b, "t", prof)[0]
     assert [v["text"].split(":")[1].strip() for v in r.violations] == ["annular ring 0.095 mm < 0.1016 mm"]
+
+
+def _link_nl(conn, pins, extra):
+    """Netlist of a board: connector `conn` with {pin: net}, plus (ref, pin, net, type) pins of other parts."""
+    def comp(value, pins_):
+        return {"ref": "", "value": value, "footprint": "", "lib": "", "part": value, "description": "",
+                "datasheet": "", "fields": {}, "dnp": False, "pins": pins_}
+    comps = {conn: comp("Conn", {p: {"name": p, "type": "passive"} for p in pins})}
+    nets = {}
+    for p, n in pins.items():
+        if n:
+            nets.setdefault(n, []).append({"ref": conn, "pin": p, "type": "passive"})
+    for ref, p, n, ty in extra:
+        comps.setdefault(ref, comp("IC", {}))["pins"][p] = {"name": p, "type": ty}
+        nets.setdefault(n, []).append({"ref": ref, "pin": p, "type": ty})
+    pin_net = {(x["ref"], x["pin"]): n for n, xs in nets.items() for x in xs}
+    return {"components": comps, "nets": nets, "pin_net": pin_net}
+
+
+def test_board_to_board_link(tmp_path, monkeypatch):
+    from kicadverify.checks import interconnect
+    (tmp_path / "sensor").mkdir()
+    for ext in (".kicad_pro", ".kicad_sch"):
+        (tmp_path / "sensor" / ("sensor" + ext)).write_text("{}")
+    main = _link_nl("J3", {"1": "+5V", "2": "GND", "3": "/SDA", "4": "/TX", "5": "/INT", "6": None},
+                    [("U1", "1", "+5V", "power_in"), ("U1", "2", "GND", "power_in"),
+                     ("U1", "3", "/SDA", "bidirectional"), ("U1", "4", "/TX", "output"), ("U1", "5", "/INT", "input")])
+    mate = _link_nl("P1", {"1": "+3V3", "2": "GND", "3": "/I2C_SCL", "4": "/TX", "5": None, "6": None},
+                    [("U9", "1", "+3V3", "power_in"), ("U9", "2", "GND", "power_in"),
+                     ("U9", "3", "/I2C_SCL", "bidirectional"), ("U9", "4", "/TX", "output")])
+    monkeypatch.setattr(interconnect.netlist, "load", lambda sch, cache=None: mate)
+    link = {"name": "sensor", "connector": "J3", "mate": {"board": "sensor/sensor.kicad_pro", "connector": "P1"}}
+    r = interconnect.run(main, tmp_path, "t", {"interconnects": [link]}, tmp_path)[0]
+    texts = [v["text"].split(": ", 2)[-1] for v in r.violations]
+    assert r.status == FAIL and texts == [
+        "5 V against 3.3 V",                                       # +5V into the sensor's 3.3 V rail
+        "an output pin drives the net on each board",              # TX to TX: not crossed
+        "net names differ",                                        # SDA against I2C_SCL
+        "the mating pin is not connected"]                         # /INT ends on nothing
+    assert r.coverage["total"] == 6
+    # reversed connector: pin 1 meets pin 6 and so on
+    link["mapping"] = "reverse"
+    r = interconnect.run(main, tmp_path, "t", {"interconnects": [link]}, tmp_path)[0]
+    assert any("J3.1 (+5V) mates sensor:P1.6" in v["text"] for v in r.violations)
+    # different pin counts cannot be mapped straight
+    mate["components"]["P1"]["pins"].pop("6")
+    link["mapping"] = "straight"
+    r = interconnect.run(main, tmp_path, "t", {"interconnects": [link]}, tmp_path)[0]
+    assert "6 electrical pins against 5 on the mate" in r.violations[0]["text"]
+    # a missing mate is a coverage gap, not a pass
+    link["mate"]["board"] = "nope/nope.kicad_pro"
+    r = interconnect.run(main, tmp_path, "t", {"interconnects": [link]}, tmp_path)[0]
+    assert r.coverage["unchecked"] and "not an existing .kicad_pro" in r.coverage["unchecked"][0]["text"]
+    # nothing declared: no result, and the requirement is excluded with its reason
+    assert interconnect.run(main, tmp_path, "t", {}, tmp_path) == []
+
+
+def test_board_to_board_link_on_carrier_boards(tmp_path, monkeypatch):
+    """Carrier boards for modules: only connector (passive) pins on the nets, so roles come from the
+    names. A reversed header puts ground on the I2C lines (HiveHub scale module and power module)."""
+    from kicadverify.checks import interconnect
+    (tmp_path / "pm").mkdir()
+    for ext in (".kicad_pro", ".kicad_sch"):
+        (tmp_path / "pm" / ("pm" + ext)).write_text("{}")
+    scale = _link_nl("J19", {"1": "GND", "2": "GND", "3": "/3.3V", "4": "/3.3V", "5": "/D4", "6": "/D5"},
+                     [("J15", "1", "/3.3V", "passive"), ("J15", "2", "GND", "passive"), ("J15", "3", "/D4", "passive"),
+                      ("J15", "4", "/D5", "passive")])
+    power = _link_nl("J20", {"1": "/BATneg", "2": "/BATneg", "3": "/3.3V", "4": "/3.3V", "5": "/SDA", "6": "/SCL"},
+                     [("J21", "1", "/3.3V", "passive"), ("J21", "2", "/BATneg", "passive"),
+                      ("J21", "3", "/SCL", "passive"), ("J21", "4", "/SDA", "passive")])
+    monkeypatch.setattr(interconnect.netlist, "load", lambda sch, cache=None: power)
+    link = {"name": "pm", "connector": "J19", "mate": {"board": "pm/pm.kicad_pro", "connector": "J20"}}
+    r = interconnect.run(scale, tmp_path, "t", {"interconnects": [link]}, tmp_path)[0]
+    # GND against /BATneg is ground on both sides; D4/SDA only differ by name (a warning to confirm)
+    assert r.status == WARN and [v["text"].rsplit(": ", 1)[-1] for v in r.violations] == ["net names differ"] * 2
+    link["mapping"] = "reverse"
+    r = interconnect.run(scale, tmp_path, "t", {"interconnects": [link]}, tmp_path)[0]
+    assert r.status == FAIL and [v["text"].rsplit(": ", 1)[-1] for v in r.violations] == [
+        "a ground against a signal", "a ground against a signal", "a signal against a ground",
+        "a signal against a ground"]

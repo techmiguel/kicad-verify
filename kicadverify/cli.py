@@ -11,7 +11,7 @@ import yaml
 from . import (__version__, attest, config, interface, manifest, netlist, outputs, provenance, report, requirements,
                review, signoff, waivers)
 from .checks import assertions, board as board_mod
-from .checks import circuit, dfm, fab, happy, isolation, kicad_cli, parity
+from .checks import circuit, dfm, fab, happy, interconnect, isolation, kicad_cli, parity
 from .report import FAIL, PASS, SKIP, WARN, Result
 
 EXIT_OK, EXIT_BLOCKED, EXIT_CONFIG, EXIT_NO_PROJECT = 0, 1, 2, 3
@@ -80,6 +80,10 @@ def checks(root, proj, mode):
             results += cres
         except Exception as e:
             results.append(Result("CIR-ENGINE", FAIL, f"{label}: circuit checks crashed: {e}"))
+        try:
+            results += interconnect.run(nl, root, label, params, cache)
+        except Exception as e:
+            results.append(Result("BRD-LINK-001", FAIL, f"{label}: board-to-board check crashed: {e}"))
         if k["pcb"].exists():
             try:
                 b = board_mod.load(k["pcb"])

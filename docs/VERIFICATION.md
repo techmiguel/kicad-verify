@@ -160,6 +160,30 @@ kicad-verify ships no normative distances: the required value and its source com
 (a barrier without a source leaves the requirement's source unconfirmed). A board with no hazardous
 voltage excludes ISO-SEP-001 with that reason.
 
+## Board-to-board connections
+
+kicad-verify reviews one board per run (`init --board` chooses it when a folder holds several). What
+one board cannot show is the board it plugs into, and that is where mirrored connectors and crossed
+supplies hide. A connection is declared on the board under review:
+
+```yaml
+params:
+  interconnects:
+    - name: sensor board
+      connector: J3
+      mate: {board: ../sensor/sensor.kicad_pro, connector: P1}
+      mapping: straight        # straight, reverse, or a pin table {1: 2, 2: 1}
+```
+
+**BRD-LINK-001** compares every mated pin pair on the two schematics. Known voltages must match (rail
+names, `net_voltages` of each board, fixed regulator outputs). Each net also gets a role, ground,
+supply or signal, from its voltage, from the pins of the parts on it (a chip's GND or VDD pin, data
+pins) or, on carrier boards whose nets only touch connector pins, from unambiguous names (SDA, TX,
+GPIO4, BAT-...): different roles fail, which is what catches a reversed or shifted header when no
+voltage is known. Two output pins on one net fail, a used pin against an unconnected one warns, and
+names that do not match (SDA against SCL, but not a TX/RX crossing) warn. Without a declared
+connection the requirement is excluded, with that reason in the report.
+
 ## Release record
 
 `kicadverify release` runs the fab gate, the reviewer (or reuses the review on record for the same

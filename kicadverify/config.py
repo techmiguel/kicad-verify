@@ -184,6 +184,9 @@ def load_project(root):
                                                                     "by": d.get("by"), "date": d.get("date")}
         excluded.append(e)
         reqs.pop(e["id"], None)
+    if not params.get("interconnects") and reqs.pop("BRD-LINK-001", None):
+        excluded.append({"id": "BRD-LINK-001",
+                         "reason": "no board-to-board connection declared (params.interconnects)"})
     if (params.get("fab") or {}).get("assembly", True) is False:
         for rid in ("FAB-BOM-001", "FAB-CPL-001", "HUM-CPL-001"):
             if reqs.pop(rid, None):

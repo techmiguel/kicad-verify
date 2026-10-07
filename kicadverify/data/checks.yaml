@@ -26,6 +26,13 @@ checks:
     inputs: [.kicad_sch, .kicad_pcb, symbol and footprint library tables]
     covers: Symbols and footprints missing from the installed libraries or differing from them, wire ends off the connection grid; reported, never gating
     limits: Depends on the libraries installed where the check runs (a CI without the project's libraries reports every part); the design is checked on its embedded copies by PCB-ERC-001 and PCB-DRC-001
+  BRD-LINK-001:
+    title: Board-to-board connections (params.interconnects)
+    layer: circuit
+    modes: [fast, full]
+    inputs: [.kicad_sch of this board and of each mating board, params.interconnects]
+    covers: For each declared link (connector, mating board and connector, straight / reverse / table pin mapping), every mated pin pair on the two schematics - different known voltages (rail names, net_voltages of each board, fixed regulator outputs), a rail against a net driven by an output pin, an output pin driving the net on each board, a used pin mating an unconnected one, net names that do not match (except a TX/RX crossing), different electrical pin counts
+    limits: Connector orientation and keying on the real parts, mechanical alignment and stacking height; signals whose voltage is not known from names or net_voltages are compared by pin type and name only; current capacity of the connector
   PCB-CONN-001:
     title: Unrouted connections (kicad-cli pcb drc)
     layer: kicad

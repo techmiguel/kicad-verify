@@ -61,6 +61,7 @@ Defects seeded into a board that was fabricated and assembled ([smartRele](https
 | CPL at the body centre; part missing from the CPL or BOM | FAB-CPL-001, FAB-BOM-001 |
 | Track inside a mounting-hole washer area | PCB-KEEPOUT-001 |
 | EN pull-up 10 kΩ → 10 MΩ, fuse 500 mA → 50 A | no rule: caught by the reviewer at the release gate |
+| Board-to-board header reversed (ground on the I2C lines of the mating board) | BRD-LINK-001 (declared connections) |
 
 ## How it works
 
