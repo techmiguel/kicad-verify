@@ -6,6 +6,8 @@ import sys
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
+import yaml
+
 from . import (__version__, attest, config, interface, manifest, netlist, outputs, provenance, report, requirements,
                review, signoff, waivers)
 from .checks import assertions, board as board_mod
@@ -302,7 +304,12 @@ def build_parser():
     p.add_argument("--path", default=".")
     p = sub.add_parser("checks", help="list the verifiers with what they cover and do not cover")
     p.add_argument("--markdown", action="store_true", help="print the table as Markdown (docs/COVERAGE.md)")
-    sub.add_parser("profiles", help="list the built-in fab capability profiles")
+    p = sub.add_parser("profiles", help="list the built-in fab capability profiles, or make one from a fab's "
+                                        "KiCad rules (--from)")
+    p.add_argument("--from", dest="from_file", metavar="FILE",
+                   help="a fab's published KiCad rules (.kicad_pro, KiCad 5 .kicad_pcb template or .kicad_dru): "
+                        "print a profile for params.fab.profile in requirements.yaml")
+    p.add_argument("--name", help="profile name (default: the file name)")
     sub.add_parser("setup", help="download the pinned kicad-happy engine")
     p = sub.add_parser("install-claude", help="install hooks and skills into ~/.claude")
     p.add_argument("--no-hooks", action="store_true", help="install the skills only")
@@ -328,6 +335,23 @@ def main(argv=None):
         print(checks_markdown() if a.markdown else "\n".join(
             f"{cid:<16} {c.get('layer', ''):<9} {'/'.join(c.get('modes', [])):<10} {c['title']}"
             for cid, c in requirements.registry().items()))
+        return 0
+    if a.cmd == "profiles" and a.from_file:
+        from . import fabimport
+        f = Path(a.from_file)
+        if f.suffix.lower() not in (".kicad_pro", ".kicad_pcb", ".kicad_dru") or not f.is_file():
+            print(f"{f}: expected an existing .kicad_pro, .kicad_pcb or .kicad_dru", file=sys.stderr)
+            return EXIT_CONFIG
+        prof, notes = fabimport.profile_from(f, a.name)
+        limits = [k for k in prof if k not in ("name", "source")]
+        missing = [k for k in dfm.MEASURED if k not in limits]
+        print("# paste under params.fab in verification/pcb/requirements.yaml; check the values against the fab\n"
+              "# and set confirmed: true once they are its current ones")
+        print(yaml.safe_dump({"profile": prof}, sort_keys=False, allow_unicode=True).rstrip())
+        for k in limits:
+            print(f"#   {k}: {notes.get(k, '')}")
+        if missing:
+            print(f"# not in the file, reported as unchecked by FAB-DFM-001 until added: {', '.join(missing)}")
         return 0
     if a.cmd == "profiles":
         for name, pr in dfm.builtin_profiles().items():

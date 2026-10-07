@@ -290,3 +290,49 @@ def test_evidence_paths_are_relative_also_beside_the_project(tmp_path):
     root = tmp_path / "hardware" / "kicad"
     assert evidence.rel(f, root) == "../fab/x.zip"  # the same key on every checkout
     assert evidence.rel(root / "a.kicad_pcb", root) == "a.kicad_pcb"
+
+
+def test_profile_from_fab_kicad_rules(tmp_path, capsys):
+    from kicadverify import cli, fabimport
+    # a KiCad 5 fab template (as the OSH Park 4-layer one): renamed copper layers, setup minima and the
+    # fab minimum in a net class
+    pcb = tmp_path / "Fab-4Layer.kicad_pcb"
+    pcb.write_text("""(kicad_pcb (version 20171130)
+ (layers (0 Front signal) (1 In1.Cu signal) (2 In2.Cu signal) (31 Back signal) (44 Edge.Cuts user))
+ (setup (trace_min 0.127) (via_min_size 0.4572) (via_min_drill 0.254) (edge_clearance 0))
+ (net_class Default "default" (clearance 0.2) (trace_width 0.25))
+ (net_class Min "fab minimum" (clearance 0.127) (trace_width 0.127)))""")
+    prof, notes = fabimport.profile_from(pcb, "fab-4")
+    assert {k: v for k, v in prof.items() if k != "source"} == {
+        "name": "fab-4", "layers_max": 4, "min_spacing_mm": 0.127, "min_track_mm": 0.127,
+        "min_via_annular_mm": 0.1016, "min_via_diameter_mm": 0.4572, "min_via_drill_mm": 0.254}
+    assert notes["min_via_annular_mm"].startswith("derived") and prof["source"]["confirmed"] is False
+    # custom rules: only those without a condition are fab-wide minima; mil converted
+    dru = tmp_path / "fab.kicad_dru"
+    dru.write_text("""(version 1)
+(rule "Fab min track" (constraint track_width (min 5mil)))
+(rule "Fab holes" (constraint hole_size (min 0.3mm)) (constraint hole_to_hole (min 0.5mm)))
+(rule "Power only" (condition "A.NetClass == 'PWR'") (constraint track_width (min 1mm)))""")
+    prof, _ = fabimport.profile_from(dru)
+    assert prof["min_track_mm"] == 0.127 and prof["min_via_drill_mm"] == 0.3 == prof["min_pth_drill_mm"]
+    assert prof["min_hole_to_hole_mm"] == 0.5
+    # a KiCad 6+ project: zeros mean "not set"
+    pro = tmp_path / "fab.kicad_pro"
+    pro.write_text('{"board": {"design_settings": {"rules": {"min_clearance": 0.1, "min_track_width": 0.09,'
+                   ' "min_copper_edge_clearance": 0.0, "min_through_hole_diameter": 0.2}}}}')
+    prof, _ = fabimport.profile_from(pro)
+    assert "min_copper_to_edge_mm" not in prof and prof["min_spacing_mm"] == 0.1
+    assert cli.main(["profiles", "--from", str(pcb), "--name", "fab-4"]) == 0
+    out = capsys.readouterr().out
+    assert "name: fab-4" in out and "not in the file" in out and "min_copper_to_edge_mm" in out
+
+
+def test_dfm_tolerance_of_a_tenth_of_a_mil():
+    from kicadverify.checks import dfm
+    prof = {"name": "t", "source": {"ref": "t"}, "min_via_annular_mm": 0.1016}  # 4 mil
+    b = {"copper_layers": ["F.Cu", "B.Cu"], "thickness": 1.6, "outline_bbox": None, "tracks": [],
+         "footprints": [], "edge_segments": [],
+         "vias": [{"net": "A", "pos": (0, 0), "drill": 0.3, "size": 0.5},     # 0.1 mm ring: 1.6 µm short
+                  {"net": "A", "pos": (5, 0), "drill": 0.3, "size": 0.49}]}   # 0.095 mm: really short
+    r = dfm.geometry(b, "t", prof)[0]
+    assert [v["text"].split(":")[1].strip() for v in r.violations] == ["annular ring 0.095 mm < 0.1016 mm"]

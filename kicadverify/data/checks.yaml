@@ -150,7 +150,7 @@ checks:
     layer: fab
     modes: [fast, full]
     inputs: [.kicad_pcb, fab profile]
-    covers: Measured track width, via drill/pad/annular ring, plated-hole drill and annular ring (via limits for thermal vias inside an SMD pad), hole-to-hole distance (slots as capsules), copper-to-board-edge distance (tracks, vias, pads, filled zones), board size, layer count and thickness
+    covers: Measured track width, via drill/pad/annular ring, plated-hole drill and annular ring (via limits for thermal vias inside an SMD pad), hole-to-hole distance (slots as capsules), copper-to-board-edge distance (tracks, vias, pads, filled zones), board size, layer count and thickness; a length is outside a limit only by more than 0.1 mil (2.54 µm), the resolution of a limit stated in mil; identical findings are grouped
     limits: Copper-to-copper spacing (FAB-RULES-001 + DRC); arcs approximated by 16 segments; non-rectangular custom pads approximated by their bounding box; silkscreen and solder mask
   ISO-SEP-001:
     title: Copper separation across isolation barriers

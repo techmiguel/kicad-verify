@@ -120,7 +120,7 @@ kicadverify audit PATH                       # do the files still match the rele
 kicadverify explain CIR-POL-001 --path PATH  # source, evidence and coverage behind one verdict
 kicadverify requirements PATH [--lint]       # traceability table, or validate the requirement set
 kicadverify checks                           # what each verifier covers and does not
-kicadverify profiles                         # built-in fab capability profiles
+kicadverify profiles [--from FAB.kicad_dru]  # built-in fab profiles, or one made from a fab's KiCad rules
 ```
 
 `kicadverify --help` lists every command. `verify` writes `verification/pcb/reports/verification_report.md` and `verify_report.json`; `--junit FILE` and `--markdown FILE` write copies for CI. Exit codes: 0 the gate passes, 1 blocked, 2 the requirement set has errors, 3 no KiCad project.

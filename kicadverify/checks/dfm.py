@@ -21,6 +21,9 @@ from ..report import FAIL, PASS, Result, count, coverage, not_verifiable
 from ..waivers import vkey
 
 PROFILE_FILE = config.DATA / "fab_profiles.yaml"
+# a measured length is outside a limit only by more than 0.1 mil (2.54 µm): fab limits are stated in
+# mil or mm and converted (4 mil = 0.1016 mm against a 0.1 mm annular ring), and no CAM resolves less
+TOL_MM = 0.00254
 MEASURED = {
     "layers_max": "copper layer count", "thickness_mm": "board thickness", "board_max_mm": "board size (max)",
     "board_min_mm": "board size (min)", "min_track_mm": "track width", "min_via_drill_mm": "via drill",
@@ -101,14 +104,14 @@ def rules(pro, label, prof):
     custom = _dru_clearances(dru.read_text(encoding="utf-8")) if dru.exists() else []
     evidence = [pro] + ([dru] if dru.exists() else [])
     n = 1 + len(classes) + len(custom)
-    if board_min is not None and board_min >= spacing - 1e-9:
+    if board_min is not None and board_min >= spacing - TOL_MM:
         return [Result(cid, PASS, f"{label}: board minimum clearance {board_min} mm >= fab {spacing} mm "
                        "(always enforced by DRC)", evidence=evidence,
                        coverage=coverage("clearance rules", n))]
     bad = [f"net class {name}: clearance {c} mm < fab minimum spacing {spacing} mm"
-           for name, c in classes if c is not None and c < spacing - 1e-9]
+           for name, c in classes if c is not None and c < spacing - TOL_MM]
     bad += [f"custom rule '{name}': clearance {c} mm < fab minimum spacing {spacing} mm"
-            for name, c in custom if c < spacing - 1e-9]
+            for name, c in custom if c < spacing - TOL_MM]
     head = (f"{label}: board minimum clearance {board_min} mm < fab {spacing} mm"
             if board_min is not None else f"{label}: board minimum clearance not set")
     if bad:
@@ -298,7 +301,7 @@ def geometry(board, label, prof, pcb=None):
         thin = {}
         for t in board["tracks"]:
             measured += 1
-            if t["width"] < v - 1e-9:
+            if t["width"] < v - TOL_MM:
                 thin[t["net"]] = min(t["width"], thin.get(t["net"], 99))
         for net, w in thin.items():
             bad("track", net, f"net {net}: track {w} mm < {v} mm")
@@ -308,12 +311,12 @@ def geometry(board, label, prof, pcb=None):
             continue
         measured += 1
         where = f"via {via['net']} at ({via['pos'][0]:.2f}, {via['pos'][1]:.2f})" if via["pos"] else f"via {via['net']}"
-        if vd is not None and via["drill"] < vd - 1e-9:
+        if vd is not None and via["drill"] < vd - TOL_MM:
             bad("viadrill", via["drill"], f"{where}: drill {via['drill']} mm < {vd} mm")
-        if vdia is not None and via["size"] < vdia - 1e-9:
+        if vdia is not None and via["size"] < vdia - TOL_MM:
             bad("viadia", via["size"], f"{where}: diameter {via['size']} mm < {vdia} mm")
         ring = (via["size"] - via["drill"]) / 2
-        if vring is not None and ring < vring - 1e-9:
+        if vring is not None and ring < vring - TOL_MM:
             bad("viaring", f"{via['size']}/{via['drill']}", f"{where}: annular ring {ring:.3f} mm < {vring} mm")
     pd, pring, dmax = lim("min_pth_drill_mm"), lim("min_pth_annular_mm"), lim("max_drill_mm")
     holes = []
@@ -324,21 +327,21 @@ def geometry(board, label, prof, pcb=None):
             holes.append((hole_shape(p), f"{fp['ref']}.{p['number']}"))
             measured += 1
             name = f"{fp['ref']}.{p['number'] or '(np)'}"
-            if dmax is not None and max(p["drill"], p["drill2"] or 0) > dmax + 1e-9:
+            if dmax is not None and max(p["drill"], p["drill2"] or 0) > dmax + TOL_MM:
                 bad("dmax", name, f"{name}: drill {max(p['drill'], p['drill2'] or 0)} mm > {dmax} mm")
             if p["type"] != "thru_hole":
                 continue
             if _thermal_via(fp, p):  # the fab drills and plates it as a via, so via limits apply
-                if vd is not None and p["drill"] < vd - 1e-9:
+                if vd is not None and p["drill"] < vd - TOL_MM:
                     bad("viadrill", name, f"{name}: thermal via drill {p['drill']} mm < {vd} mm")
                 ring = (min(p["size"]) - p["drill"]) / 2
-                if vring is not None and ring < vring - 1e-9:
+                if vring is not None and ring < vring - TOL_MM:
                     bad("viaring", name, f"{name}: thermal via annular ring {ring:.3f} mm < {vring} mm")
                 continue
-            if pd is not None and min(p["drill"], p["drill2"] or p["drill"]) < pd - 1e-9:
+            if pd is not None and min(p["drill"], p["drill2"] or p["drill"]) < pd - TOL_MM:
                 bad("pthdrill", name, f"{name}: plated drill {p['drill']} mm < {pd} mm")
             ring = min(p["size"][0] - p["drill"], p["size"][1] - (p["drill2"] or p["drill"])) / 2
-            if pring is not None and ring < pring - 1e-9:
+            if pring is not None and ring < pring - TOL_MM:
                 bad("pthring", name, f"{name}: annular ring {ring:.3f} mm < {pring} mm "
                                      f"(pad {p['size'][0]}x{p['size'][1]}, drill {p['drill']})")
     holes += [(("capsule", tuple(v_["pos"]), tuple(v_["pos"]), v_["drill"] / 2), f"via {v_['net']}")
@@ -362,7 +365,7 @@ def geometry(board, label, prof, pcb=None):
                         (_, a2, b2, r2), n2 = holes[j]
                         x2, y2 = centre[j]
                         d = seg_seg(a, b, a2, b2) - r - r2
-                        if d < v - 1e-9 and not (abs(x - x2) < 1e-6 and abs(y - y2) < 1e-6):
+                        if d < v - TOL_MM and not (abs(x - x2) < 1e-6 and abs(y - y2) < 1e-6):
                             bad("h2h", f"{name}|{n2}", f"{name} and {n2}: {max(d, 0):.3f} mm hole to hole < {v} mm")
     if (v := lim("min_copper_to_edge_mm")) is not None:
         edges = board.get("edge_segments") or []
@@ -382,11 +385,18 @@ def geometry(board, label, prof, pcb=None):
             for shape, name in shapes:
                 measured += 1
                 d = edge_distance(shape, edges, index, v)
-                if d < v - 1e-9:
+                if d < v - TOL_MM:
                     worst[name] = min(d, worst.get(name, math.inf))
             for name, d in worst.items():
                 bad("edge", name, f"{name}: {d:.3f} mm from the board edge < {v} mm")
     st = FAIL if viol else PASS
+    # the same finding repeated (every via of a thermal-pad array): one line with its count
+    grouped = {}
+    for v in viol:
+        g = grouped.setdefault((v["key"], v["text"]), {**v, "n": 0})
+        g["n"] += 1
+    viol = [{"key": g["key"], "text": g["text"] + (f" (x{g['n']})" if g["n"] > 1 else "")}
+            for g in grouped.values()]
     return [Result(cid, st, f"{label}: {count(len(viol), 'geometry item')} outside fab profile {prof['name']}",
                    violations=viol, evidence=[pcb] if pcb else [],
                    coverage=coverage("measured items", measured + len(unchecked), unchecked,

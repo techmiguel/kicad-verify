@@ -93,7 +93,8 @@ report always shows the policy each gate used.
 
 A clean DRC only means the board obeys its own rules. Two requirements tie those rules to what the
 chosen fab can make, from a profile that is itself a cited source (`kicadverify profiles`,
-`params.fab.profile`):
+`params.fab.profile`). The best source is the fab's own KiCad rules: `kicadverify profiles --from
+FAB.kicad_dru` (or a fab's `.kicad_pro` / KiCad 5 template) prints a profile from them:
 
 - **FAB-RULES-001**: copper spacing is guaranteed by the DRC only when the board minimum clearance (or
   every net-class and custom-rule clearance) is at least the fab's minimum spacing. A board whose
