@@ -171,12 +171,14 @@ def init_project(root, ci=None):
             if dst.name == "project.yaml":
                 dst.write_text(dst.read_text(encoding="utf-8").replace("{{name}}", root.name), encoding="utf-8")
     if ci == "github":
+        from . import __version__
         repo = next((d for d in [root, *root.parents] if (d / ".git").exists()), root)
         wf = repo / ".github" / "workflows" / "hw-verify.yml"
         if not wf.exists():
             wf.parent.mkdir(parents=True, exist_ok=True)
             rel = os.path.relpath(root, repo).replace("\\", "/")
-            wf.write_text((DATA / "ci" / "github-workflow.yml").read_text(encoding="utf-8").replace("{{path}}", rel),
+            wf.write_text((DATA / "ci" / "github-workflow.yml").read_text(encoding="utf-8").replace("{{path}}", rel)
+                          .replace("{{version}}", __version__),
                           encoding="utf-8")
             created.append(wf)
     return created

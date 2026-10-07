@@ -6,6 +6,8 @@
 # kicad-cli runs in the official KiCad image through a small wrapper; kicad-verify itself runs on
 # the runner's Python. HOME=/home/kicad inside the image keeps its global library tables (without
 # them ERC/DRC report every symbol and footprint as missing from its library).
+# kicad-verify is pinned to the version that wrote this file: a new version can change verdicts
+# and invalidate sign-offs (see its CHANGELOG), so bump it on purpose.
 name: hw-verify
 on:
   push:
@@ -33,7 +35,7 @@ jobs:
           echo "KICAD_CLI=$RUNNER_TEMP/bin/kicad-cli" >> "$GITHUB_ENV"
       - name: Install kicad-verify
         run: |
-          pip install --quiet git+https://github.com/techmiguel/kicad-verify
+          pip install --quiet "git+https://github.com/techmiguel/kicad-verify@v{{version}}"
           kicadverify setup
       - name: Verify (fab gate)
         run: >-

@@ -1,6 +1,8 @@
 # Changelog
 
-## Unreleased
+## 0.5.0 — 2026-10-07
+First tagged release: install a fixed version with `pip install "git+https://github.com/techmiguel/kicad-verify@v0.5.0"`.
+- `init --ci github` pins the workflow to the kicad-verify version that wrote it (`@v<version>`) instead of the development branch.
 - PCB-PARITY-001 compares component values between schematic and PCB. A value changed in only one of them (the board would be built with a value the circuit checks never saw) is FAILED and blocks every gate; each difference can be waived with a reason. Values are compared as numbers when both parse (`4k7` = `4.7k` = `4700`, `100n` = `100nF`, `220` = `220Ω`), the rest of the value (`10V`, `X7R`) as text ignoring case and spacing. Found by testing on smartRele: R9 changed to 330 Ω in the schematic alone passed the fab gate with only a kicad-happy warning.
 - The requirement text of PCB-PARITY-001 now names values, so the policy digest changes: sign-offs made under 0.4.0 or earlier must be renewed.
 - Seeded defect `value_R9_schematic_only` added to the bank (23 defects with the 0.4.0 isolation cases).

@@ -59,10 +59,12 @@ The model in detail: [docs/VERIFICATION.md](docs/VERIFICATION.md).
 Requires Python 3.10+, KiCad 10 (`kicad-cli`; tested with 10.0.5 and 10.0.6) and, for the reviewer, the [Claude Code](https://docs.anthropic.com/en/docs/claude-code) CLI.
 
 ```bash
-pip install git+https://github.com/techmiguel/kicad-verify
+pip install "git+https://github.com/techmiguel/kicad-verify@v0.5.0"   # a tagged release
 kicadverify setup            # downloads the pinned kicad-happy engine (v2.3.1)
 kicadverify install-claude   # optional: hooks + /pcb-verify, /pcb-review, /pcb-release skills
 ```
+
+Install a tagged release (see [CHANGELOG.md](CHANGELOG.md)) rather than `main`: a new version can change verdicts and invalidate sign-offs. The CI workflow written by `kicadverify init --ci github` pins the version that wrote it.
 
 `kicad-cli` is found on `PATH`, in the default KiCad install folders, or through `KICAD_CLI` (which can point to a wrapper that runs the official `kicad/kicad:10.0` image; the CI template does exactly that).
 
