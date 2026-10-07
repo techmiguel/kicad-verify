@@ -593,6 +593,11 @@ def test_init_finds_outputs_outside_the_project_folder(tmp_path):
     kicad = repo / "hardware" / "kicad"
     kicad.mkdir(parents=True)
     (kicad / "x.kicad_pro").write_text("{}")
+    (kicad / "x.kicad_pcb").write_text("(kicad_pcb)")
+    # another board of the same repository, with more outputs: not this board's
+    (repo / "other" / "manufacturing").mkdir(parents=True)
+    for layer in ("F_Cu", "B_Cu", "F_Mask", "B_Mask"):
+        (repo / "other" / "manufacturing" / f"other-{layer}.gbr").write_text("%TF.FileFunction,Other*%\n")
     (repo / "hardware" / "fab" / "gerber").mkdir(parents=True)
     (repo / "hardware" / "fab" / "gerber" / "x-F_Cu.gbr").write_text("%TF.FileFunction,Copper,L1,Top*%\n")
     with zipfile.ZipFile(repo / "hardware" / "fab" / "x-gerbers.zip", "w") as z:

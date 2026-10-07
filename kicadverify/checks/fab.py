@@ -81,15 +81,28 @@ def detect_outside(root):
     if any(find_outputs(root, {})) or archives(root, {}):
         return {}
     repo = next((d for d in [root, *root.parents] if (d / ".git").exists()), root.parent)
+    # only outputs named after this board (KiCad names them <board>-F_Cu.gbr): a repository with
+    # several boards keeps the others' outputs next to this one's
+    stems = [f.stem.lower() for f in root.glob("*.kicad_pcb")]
+
+    def ours(name):
+        return any(s in name.lower() for s in stems)
+
     counts, boms, cpls = Counter(), [], []
     for f in walk(repo, 6):
         if root in f.parents:
             continue
         s, n = f.suffix.lower(), f.name.lower()
         if _fab_member(f.name):
-            counts[f.parent] += 1
-        elif s == ".zip" and f.parent not in counts and archives(f.parent, {}):
-            counts[f.parent] += 1
+            if ours(f.name):
+                counts[f.parent] += 1
+        elif s == ".zip":
+            try:
+                with zipfile.ZipFile(f) as z:
+                    if any(_fab_member(m) and ours(Path(m).name) for m in z.namelist()):
+                        counts[f.parent] += 1
+            except (zipfile.BadZipFile, OSError):
+                pass
         elif s == ".csv" and "bom" in n:
             boms.append(f)
         elif s == ".csv" and any(k in n for k in ("cpl", "pos", "placement", "pnp")):

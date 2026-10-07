@@ -201,6 +201,12 @@ def test_pinmap_accepts_symbol_pins_drawn_on_a_shared_pad():
     qfn = {"footprints": [_fp("U1", "Q:QFN-32", [("1", "GND", "smd"), ("2", "/IO", "smd")], value="MCU")]}
     r = parity.run(qfn, qnl, "t")[1]
     assert r.status == FAIL and "U1: symbol pin 33 (GND) has no pad" in r.violations[0]["text"]
+    # a pin unconnected in the schematic without a pad (one header row of a module not used): a
+    # warning to confirm, not a lost connection
+    qnl["pin_net"][("U1", "33")] = "unconnected-(U1-GND-Pad33)"
+    qfn["footprints"][0]["pads"][0]["net"] = "GND"
+    r = parity.run(qfn, qnl, "t")[1]
+    assert r.status == WARN and r.violations[0]["text"].endswith("(the pin is unconnected in the schematic)")
 
 
 def test_parity_compares_kicad_derived_net_names_by_members():

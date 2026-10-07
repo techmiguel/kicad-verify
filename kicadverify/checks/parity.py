@@ -64,7 +64,12 @@ def run(board, nl, label):
                         q != pin and q in padnet and pin_net.get((ref, q)) == want and padnet[q]
                         and norm_net(padnet[q]) == norm_net(want) and pad_count[q] > 1 for q in sym_pins):
                     continue
-                pinmap.append(f"{ref}: symbol pin {pin} ({c['pins'][pin]['name'] or '-'}) has no pad in {fp['name']}")
+                text = f"{ref}: symbol pin {pin} ({c['pins'][pin]['name'] or '-'}) has no pad in {fp['name']}"
+                if not want or want.startswith("unconnected-"):
+                    # nothing is lost electrically; whether the part still fits (a module row
+                    # without holes) is for a person to confirm
+                    text += " (the pin is unconnected in the schematic)"
+                pinmap.append(text)
                 continue
             got = padnet.get(pin)
             if want is None:
@@ -94,7 +99,8 @@ def run(board, nl, label):
         Result("PCB-PARITY-001", FAIL if diffs else PASS, f"{label}: {count(len(diffs), 'schematic/PCB difference')}",
                violations=[{"key": vkey("parity", d), "text": d} for d in diffs],
                coverage=coverage("schematic components", n_comp)),
-        Result("PCB-PINMAP-001", FAIL if any("has no pad" in p for p in pinmap) else WARN if pinmap else PASS,
+        Result("PCB-PINMAP-001", FAIL if any("has no pad" in p and "unconnected in the schematic" not in p
+                                             for p in pinmap) else WARN if pinmap else PASS,
                f"{label}: {count(len(pinmap), 'symbol-pin/footprint-pad mismatch')}",
                violations=[{"key": vkey("pinmap", p), "text": p} for p in pinmap],
                coverage=coverage("symbol pins", n_pins)),
