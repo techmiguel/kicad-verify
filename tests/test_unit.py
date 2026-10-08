@@ -56,6 +56,7 @@ def test_net_voltage_from_name():
     assert f("+3V3") == 3.3 and f("/+5V") == 5 and f("GND") == 0 and f("AGND") == 0
     assert f("VBUS") == 5 and f("+1V8_RF") == 1.8 and f("/RELAY") is None and f("Net-(D2-K)") is None
     assert f("-12V") == -12 and f("/-5V") == -5 and f("-3V3") == -3.3  # read as positive before
+    assert f("V-12V") == -12 and f("/pwr/V-3V3") == -3.3 and f("VCC_3V3") == 3.3 and f("VIN_12V") == 12
 
 
 def test_fixed_regulator_vout():

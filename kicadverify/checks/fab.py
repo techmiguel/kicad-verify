@@ -52,9 +52,10 @@ def archives(root, params):
     """Zip archives holding Gerber or drill files (what is uploaded to the fab)."""
     root = Path(root)
     base = output_base(root, params)
+    foreign = config.foreign_dirs(root)
     out = []
     for f in walk(base, 4):
-        if f.suffix.lower() == ".zip":
+        if f.suffix.lower() == ".zip" and not config.is_foreign(f, foreign):
             try:
                 with zipfile.ZipFile(f) as z:
                     if any(_fab_member(n) for n in z.namelist()):
@@ -147,7 +148,8 @@ def find_outputs(root, params, unzip_to=None):
     root = Path(root)
     gerbers, drills, boms, cpls = [], [], [], []
     base = output_base(root, params)
-    files = list(walk(base, 4))
+    foreign = config.foreign_dirs(root)  # another board's folder holds that board's outputs
+    files = [f for f in walk(base, 4) if not config.is_foreign(f, foreign)]
     if unzip_to:
         for zf in archives(root, params):
             files += _unzip(zf, unzip_to, root)
@@ -488,7 +490,9 @@ def _dnp_row(row):
     """A BOM line that lists parts as not fitted: a DNP / 'Do not populate' column with a mark, or
     'DNP' as the value."""
     for k, v in row.items():
-        key, val = (k or "").lower().strip(), (v or "").strip().lower()
+        if not isinstance(k, str) or not isinstance(v, (str, type(None))):
+            continue  # csv puts the cells beyond the header (a trailing comma) in a list under None
+        key, val = k.lower().strip(), (v or "").strip().lower()
         if key in ("dnp", "do not populate", "do_not_populate", "not fitted", "nofit") and val not in ("", "0", "no",
                                                                                                     "false"):
             return True

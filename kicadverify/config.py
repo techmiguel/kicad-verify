@@ -127,6 +127,21 @@ def artifact_hash(root, include_outputs=True):
 DESIGN_SUFFIXES = (".kicad_pcb", ".kicad_sch", ".kicad_pro", ".kicad_dru")
 
 
+def foreign_dirs(root):
+    """Folders of the other KiCad projects under `root` once a board is chosen: their files belong to
+    another board (its design files, its Gerbers). Folders holding the chosen board are never foreign."""
+    boards = discover(root)
+    if len(boards) != 1:
+        return set()
+    me = boards[0]["pro"]
+    mine = {me.parent, *me.parent.parents}
+    return {k["pro"].parent for k in candidates(root) if k["pro"] != me and k["pro"].parent not in mine}
+
+
+def is_foreign(f, dirs):
+    return any(d in dirs for d in Path(f).parents)
+
+
 def design_files(root):
     """KiCad files that define the design. .kicad_pro and .kicad_dru hold the design rules and net
     classes the DRC is judged against, so they are part of the design. Only the board's own files
@@ -137,14 +152,12 @@ def design_files(root):
         return [f for f in sorted(walk(root)) if f.suffix.lower() in DESIGN_SUFFIXES]
     me = boards[0]["pro"]
     base = me.parent
-    other = [k["pro"] for k in candidates(root) if k["pro"] != me]
-    other_dirs = {o.parent for o in other if o.parent != base}
-    other_stems = {o.stem for o in other if o.parent == base}  # another project in the same folder
+    other_dirs = foreign_dirs(root)
+    other_stems = {k["pro"].stem for k in candidates(root)
+                   if k["pro"] != me and k["pro"].parent == base}  # another project in the same folder
     out = []
     for f in sorted(walk(base)):
-        if f.suffix.lower() not in DESIGN_SUFFIXES:
-            continue
-        if any(d in other_dirs for d in f.parents if base in d.parents):
+        if f.suffix.lower() not in DESIGN_SUFFIXES or is_foreign(f, other_dirs):
             continue
         if f.parent == base and f.stem in other_stems:
             continue
@@ -249,8 +262,9 @@ def init_project(root, ci=None, board=None):
                     rel = os.path.relpath(Path(board).resolve(), root.resolve()).replace("\\", "/")
                     text += f"board: {rel}            # the board this verification is about\n"
                 dst.write_text(text, encoding="utf-8")
-            if dst.name == "requirements.yaml":
-                _write_detected_outputs(root, dst)
+    # after the loop: detection needs `board:` from project.yaml, whatever order the templates come in
+    if vd / "requirements.yaml" in created:
+        _write_detected_outputs(root, vd / "requirements.yaml")
     if ci == "github":
         repo = next((d for d in [root, *root.parents] if (d / ".git").exists()), root)
         wf = repo / ".github" / "workflows" / "hw-verify.yml"

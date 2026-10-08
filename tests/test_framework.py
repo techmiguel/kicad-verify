@@ -359,6 +359,11 @@ def test_bom_dnp_rows_part_numbers_and_several_files(assy_board, tmp_path):
     # several BOMs: the one the board agrees with is checked, the others are named
     r = fab.bom(assy_board, [bad, kicad], "t")[0]
     assert r.status == PASS and "board_BOM.csv checked, also found bad_BOM.csv" in r.detail
+    # rows with a trailing comma (more cells than the header): csv keeps the extra cells in a list
+    trailing = tmp_path / "trailing_BOM.csv"
+    trailing.write_text("".join(ln + ",\n" if i else ln + "\n"
+                                for i, ln in enumerate(kicad.read_text().splitlines())), encoding="utf-8")
+    assert fab.bom(assy_board, [trailing], "t")[0].status == PASS
 
 
 def test_cpl_reads_kicad_ascii_pos_in_inches(assy_board, tmp_path):
@@ -617,6 +622,23 @@ def test_init_finds_outputs_outside_the_project_folder(tmp_path):
     assert len(g) == 2 and b == [kicad / "../bom/bom.csv"] and c == [kicad / "../bom/cpl.csv"]
 
 
+def test_init_detects_outputs_for_the_chosen_board_whatever_the_template_order(tmp_path, monkeypatch):
+    repo = tmp_path / "repo"
+    (repo / ".git").mkdir(parents=True)
+    for b in ("a", "b"):
+        (repo / "hw" / b).mkdir(parents=True)
+        (repo / "hw" / b / f"{b}.kicad_pro").write_text("{}")
+        (repo / "hw" / b / f"{b}.kicad_pcb").write_text("(kicad_pcb)")
+    (repo / "fab").mkdir()
+    (repo / "fab" / "a-F_Cu.gbr").write_text("%TF.FileFunction,Copper,L1,Top*%\n")
+    real = Path.iterdir
+    monkeypatch.setattr(Path, "iterdir", lambda self: iter(sorted(
+        real(self), key=lambda f: f.name != "requirements.yaml")))
+    config.init_project(repo / "hw", board=repo / "hw" / "a" / "a.kicad_pro")
+    params = config.load_yaml(repo / "hw" / config.DIRNAME / "requirements.yaml", {})["params"]
+    assert params["fab"]["dir"] == "../fab"
+
+
 def test_one_board_per_verification(tmp_path, capsys):
     repo = tmp_path / "hw"
     for b in ("main", "daughter"):
@@ -648,6 +670,17 @@ def test_one_board_per_verification(tmp_path, capsys):
         (repo / b / "gerbers" / f"{b}-F_Cu.gbr").write_text("%TF.FileFunction,Copper,L1,Top*%\n")
     g, _, _, _ = fab.find_outputs(repo, {})
     assert [x.name for x in g] == ["main-F_Cu.gbr"]
+    # the board at the top of a folder with another board in a sub-folder: that board's outputs are not this one's
+    top = tmp_path / "top"
+    (top / "daughter" / "gerbers").mkdir(parents=True)
+    for d, b in ((top, "main"), (top / "daughter", "daughter")):
+        (d / f"{b}.kicad_pro").write_text("{}")
+        (d / f"{b}.kicad_pcb").write_text("(x)")
+    (top / "daughter" / "gerbers" / "daughter-F_Cu.gbr").write_text("%TF.FileFunction,Copper,L1,Top*%\n")
+    (top / "daughter" / "daughter.drl").write_text("M48\n")
+    (top / "main-F_Cu.gbr").write_text("%TF.FileFunction,Copper,L1,Top*%\n")
+    g, d, _, _ = fab.find_outputs(top, {})
+    assert [x.name for x in g] == ["main-F_Cu.gbr"] and d == []
     assert sorted(f.name for f in config.design_files(repo)) == [
         "main.kicad_pcb", "main.kicad_pro", "main.kicad_sch", "power.kicad_sch"]
     h = config.design_hash(repo)
