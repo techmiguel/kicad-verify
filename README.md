@@ -19,7 +19,7 @@ Gates (`dev`, `fab`, `release`) decide from those states. Nothing is VERIFIED by
 Requires Python 3.10+ and KiCad 10 (`kicad-cli`, tested with 10.0.5 and 10.0.6).
 
 ```bash
-pip install "git+https://github.com/techmiguel/kicad-verify@v0.5.1"
+pip install "git+https://github.com/techmiguel/kicad-verify@v0.6.0"
 kicadverify setup                               # downloads the pinned kicad-happy engine
 kicadverify init path/to/project --ci github    # verification/pcb/ + a GitHub Actions workflow
 kicadverify verify path/to/project --gate fab   # ready to fabricate? (10-20 s on a two-layer board)
@@ -43,6 +43,8 @@ The first run on a new project is expected to block on NOT_VERIFIABLE requiremen
 If `kicad-cli` is not on `PATH` or in the default install folder, set `KICAD_CLI`. It can point to a wrapper around the official `kicad/kicad:10.0` image, which is what the CI workflow does.
 
 ## What it catches
+
+Tested on ten public KiCad 8, 9 and 10 boards (2 and 4 layers, hierarchical, multi-board repositories); every false alarm found there is fixed and covered by a regression test ([CHANGELOG.md](CHANGELOG.md)).
 
 Defects seeded into a board that was fabricated and assembled ([smartRele](https://github.com/techmiguel/smartRele)), configured with the reference set. **21 of 23 block the fab gate**; the unmodified board passes it. Method and full table: [docs/RESULTS.md](docs/RESULTS.md).
 
@@ -134,7 +136,11 @@ Install a tagged release rather than `main`: a new version can change verdicts a
 
 ## Limits
 
-No tool can prove a board works. VERIFIED means "no defect of this kind within this coverage". The deterministic checks remove classes of mistakes; the reviewer finds some design-intent problems and can miss others; sign-offs cover what only a person with the parts in hand can check. The built-in JLCPCB profile is marked unconfirmed until someone checks it against the fab's current capabilities, and other fabs or layer counts need a profile in the project.
+No tool can prove a board works. VERIFIED means "no defect of this kind within this coverage". The deterministic checks remove classes of mistakes; the reviewer finds some design-intent problems and can miss others; sign-offs cover what only a person with the parts in hand can check.
+
+One run verifies one board. Connections to other boards are checked only where they are declared (`params.interconnects`, BRD-LINK-001).
+
+Fab profiles: the built-in JLCPCB 2-layer and OSH Park 4-layer profiles are marked unconfirmed until someone checks them against the fab's current capabilities. For any other fab or process, build one from the fab's own KiCad rules with `kicadverify profiles --from`.
 
 ## Development
 

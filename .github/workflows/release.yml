@@ -1,0 +1,28 @@
+name: release
+
+# Pushing a tag vX.Y.Z publishes the GitHub release, with the CHANGELOG section of that version as notes.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Tag matches the package version
+        run: |
+          v="${GITHUB_REF_NAME#v}"
+          grep -q "^version = \"$v\"" pyproject.toml || { echo "pyproject.toml is not version $v"; exit 1; }
+      - name: Release notes from CHANGELOG.md
+        run: |
+          v="${GITHUB_REF_NAME#v}"
+          awk -v v="$v" '$0 ~ "^## "v"( |$)" {on=1; next} /^## / && on {exit} on' CHANGELOG.md > notes.md
+          test -s notes.md || { echo "no CHANGELOG section for $v"; exit 1; }
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" --title "kicad-verify ${GITHUB_REF_NAME#v}" --notes-file notes.md --verify-tag

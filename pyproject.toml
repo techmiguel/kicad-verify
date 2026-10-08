@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "kicad-verify"
-version = "0.5.1"
+version = "0.6.0"
 description = "Requirements-based verification for KiCad 10 projects: is this PCB ready to manufacture, and what is the evidence?"
 readme = "README.md"
 license = {text = "MIT"}
