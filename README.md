@@ -4,7 +4,9 @@
 [![release](https://img.shields.io/github/v/tag/techmiguel/kicad-verify?label=release)](CHANGELOG.md)
 [![license](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
-**Is this KiCad 10 board ready to manufacture?** kicad-verify answers requirement by requirement, with evidence, locally, in CI or inside Claude Code.
+**kicad-verify checks a KiCad board before you send it to the fab, and tells you what is wrong, what it could not check, and why.**
+
+Run it on your project. It reports which requirements pass, which fail, and which need information from you (a datasheet pin, the fab's limits). Everything runs locally, and the fab gate needs no account or API key. It works from the command line, in CI, or driven by an AI agent such as Claude Code. Boards saved by KiCad 8, 9 and 10 are supported; checking them requires KiCad 10's `kicad-cli`.
 
 Every requirement has a source (datasheet, fab capability, standard, design intent), a way to verify it (a deterministic check, an independent reviewer whose quotes are re-checked by code, or a human sign-off) and ends in one of four states:
 
@@ -130,7 +132,9 @@ kicadverify profiles [--from FAB.kicad_dru]  # built-in fab profiles, or one mad
 
 **In CI.** The workflow written by `init --ci github` runs the fab gate on every push with kicad-cli from the official KiCad image. It publishes the report in the job summary, a JUnit file and the evidence, and pins the kicad-verify version that wrote it.
 
-**In Claude Code.** `kicadverify install-claude` adds hooks and `/pcb-verify`, `/pcb-review` and `/pcb-release` skills. The fast checks run after every KiCad edit and a blocked `dev` gate goes back to the agent with the failing requirements. When the agent finishes, the full gate runs if the design changed. Existing hooks are kept, and `uninstall-claude` removes only what was added.
+**With an AI agent.** Any agent that can run commands can use kicad-verify: the exit code says whether the gate passes, and `verification/pcb/reports/verify_report.json` lists every requirement with its state, findings and the input it needs.
+
+**In Claude Code.** `kicadverify install-claude` adds, for the current user, hooks and `/pcb-verify`, `/pcb-review` and `/pcb-release` skills. The fast checks run after every KiCad edit and a blocked `dev` gate goes back to the agent with the failing requirements. When the agent finishes, the full gate runs if the design changed. Existing hooks are kept, and `uninstall-claude` removes only what was added.
 
 Install a tagged release rather than `main`: a new version can change verdicts and invalidate sign-offs ([CHANGELOG.md](CHANGELOG.md)).
 
