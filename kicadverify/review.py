@@ -342,7 +342,8 @@ def load_current(proj, design_hash, review_key):
     if rep.get("review_key") != review_key:
         return None, ("the review inputs changed since the last review (requirements, design intent, "
                       "datasheets or reviewer prompt)"), None
-    if not rep.get("results"):
+    # a run that failed (timeout, `claude` missing) is recorded as REV-RUN; it is no review to reuse
+    if not rep.get("results") or all(d.get("check") == "REV-RUN" for d in rep["results"]):
         return None, "the last review did not run", None
     res = [Result.from_dict(d) for d in rep["results"]]
     for r in res:

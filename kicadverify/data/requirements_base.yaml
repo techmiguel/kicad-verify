@@ -13,7 +13,13 @@
 #   acceptance  no_fail (WARN findings accepted) | no_findings (every finding must be fixed or waived)
 #   gate        first gate at which it must be VERIFIED: dev | fab | release | none (advisory)
 params:
-  min_power_width_mm: 0.25
+  # PCB-WIDTH-001: tracks of power nets narrower than power_review_width_mm (outside stubs to
+  # capacitors and test points) need the net's current, checked against IPC-2221 with the board's
+  # copper thickness and width_temp_rise_c; or a fixed project limit min_power_width_mm
+  power_review_width_mm: 0.25
+  width_temp_rise_c: 10
+  # net_currents: {"+5V": 2.0, "~/MOTOR.*": 3.5}
+  # min_power_width_mm: 0.4
   # power_net_patterns: ["^/?MOTOR"]
   hole_keepout_extra_mm: 1.4        # keep-out radius = drill/2 + this (washer / screw head)
   # mounting_refs: [H1, H2]          # when mounting holes do not use MountingHole* footprints
@@ -52,6 +58,10 @@ requirements:
   - id: PCB-DRC-001
     text: "DRC has no errors against the board design rules"
     source: {kind: tool, ref: "KiCad design rules check (kicad-cli pcb drc --severity-all --refill-zones)"}
+  - id: PCB-HYGIENE-001
+    text: "Symbols and footprints match their installed libraries and wires end on the grid (advisory)"
+    gate: none
+    source: {kind: tool, ref: "KiCad ERC/DRC library and grid checks; they depend on the library tables of the machine that runs them, not on the design that is built"}
   - id: PCB-CONN-001
     text: "Every schematic connection is routed"
     source: {kind: tool, ref: "KiCad DRC unconnected items"}
@@ -78,8 +88,8 @@ requirements:
     acceptance: no_findings
     source: {kind: best_practice, ref: "Unintended open pads are a common assembly-review finding"}
   - id: PCB-WIDTH-001
-    text: "Power tracks are at least min_power_width_mm wide"
-    source: {kind: standard, ref: "IPC-2221 current-capacity charts (project threshold min_power_width_mm)"}
+    text: "Power tracks are wide enough for their current (IPC-2221) or the project's min_power_width_mm"
+    source: {kind: standard, ref: "IPC-2221 conductor sizing (I = k dT^0.44 A^0.725), currents from params.net_currents"}
   - id: PCB-PINS-001
     text: "Critical pins match verification/pcb/pins.yaml (copied from the datasheets)"
     source: {kind: datasheet, ref: "Pin tables transcribed into verification/pcb/pins.yaml"}
@@ -120,6 +130,9 @@ requirements:
   - id: ISO-SEP-001
     text: "Copper on each side of every declared isolation barrier (mains to low voltage, between mains conductors...) is at least the required distance apart on every layer"
     source: {kind: regulatory, ref: "Each barrier in params.isolation.barriers cites the standard and table its distance comes from"}
+  - id: BRD-LINK-001
+    text: "Every declared board-to-board connection joins compatible pins: same voltage, no two outputs, no signal into an unconnected pin, matching pin counts"
+    source: {kind: design_intent, ref: "Board-to-board connections declared in params.interconnects (connector, mating board and connector, pin mapping)"}
   - id: FAB-GERBER-001
     text: "Gerber set has every mandatory layer"
     source: {kind: fab_capability, ref: "Fab order requirements: copper, mask and outline layers (Gerber X2)"}

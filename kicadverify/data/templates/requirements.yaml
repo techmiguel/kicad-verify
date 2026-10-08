@@ -8,11 +8,14 @@
 params:
   fab:
     profile: null      # target fab capabilities, e.g. jlcpcb-1-2-layer-standard (`kicadverify profiles`)
+  # interconnects:                   # connectors that mate with another board (BRD-LINK-001)
+  #   - {name: sensor board, connector: J3, mate: {board: ../sensor/sensor.kicad_pro, connector: P1},
+  #      mapping: straight}          # straight, reverse, or a pin table {1: 2, 2: 1}
   # isolation:                       # boards with mains or other hazardous voltages
   #   barriers:
   #     - {name: mains to SELV, a: {netclass: MAINS}, required_mm: 6.4,
   #        source: {kind: regulatory, ref: "standard, table, insulation class, working voltage, PD, material group"}}
-  # min_power_width_mm: 0.4
+  # net_currents: {"+5V": 2.0, "~/MOTOR.*": 3.5}   # A, for PCB-WIDTH-001 (IPC-2221); or a fixed min_power_width_mm
   # net_voltages: {"/VIN": 12}
   # mounting_holes: {drill_mm: 3.2, tol_mm: 0.1, expected: [[10, 10], [90, 10]]}
   # interface: {step_user_origin: "100x149mm"}

@@ -52,13 +52,19 @@ def evaluate(req, nl, board, label):
         n = 1
         if t == "pin_net":
             pin = str(spec.get("pin"))
-            got = None
+            # both sides are checked: a pad left without a net on the PCB fails even when the
+            # schematic has the pin on the required net (the board was not updated)
+            sides = []
             if fp:
-                got = next((p["net"] for p in fp["pads"] if p["number"] == pin), None)
-            if got is None and nl:
-                got = nl["pin_net"].get((spec["ref"], pin))
-            if not _match(spec.get("net"), got):
-                bad.append(f"{spec['ref']}.{pin}: net {got}, required {spec.get('net')}")
+                pads = [p for p in fp["pads"] if p["number"] == pin]
+                sides.append(("PCB", pads[0]["net"] if pads else None, bool(pads)))
+            if nl and c is not None:
+                sides.append(("schematic", nl["pin_net"].get((spec["ref"], pin)), True))
+            for side, got, present in sides:
+                if not present:
+                    bad.append(f"{spec['ref']}.{pin}: no such pad on the PCB, required on {spec.get('net')}")
+                elif not _match(spec.get("net"), got):
+                    bad.append(f"{spec['ref']}.{pin}: net {got} in the {side}, required {spec.get('net')}")
         elif t == "value":
             got = (c or {}).get("value") or (fp or {}).get("value")
             if not _match(spec.get("equals") or spec.get("matches"), got):

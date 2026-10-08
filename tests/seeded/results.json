@@ -103,11 +103,13 @@
       "deterministic": true,
       "deterministic_checks": [
         "FAB-DRILL-001",
+        "FAB-STALE-001",
         "PCB-HOLE-001",
         "PCB-KEEPOUT-001"
       ],
       "requirements_failed": [
         "FAB-DRILL-001",
+        "FAB-STALE-001",
         "PCB-HOLE-001",
         "PCB-KEEPOUT-001"
       ],
@@ -165,8 +167,7 @@
         "CIR-LED-001",
         "CIR-POL-001",
         "PCB-CONN-001",
-        "PCB-DRC-001",
-        "PCB-PARITY-001"
+        "PCB-DRC-001"
       ],
       "reviewer_opus": [
         "FAIL",
@@ -181,8 +182,7 @@
       "requirements_failed": [
         "CIR-POL-001",
         "PCB-CONN-001",
-        "PCB-DRC-001",
-        "PCB-PARITY-001"
+        "PCB-DRC-001"
       ],
       "fab_gate_blocked": true
     },

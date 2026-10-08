@@ -17,8 +17,22 @@ checks:
     layer: kicad
     modes: [full]
     inputs: [.kicad_pcb, .kicad_pro, .kicad_dru]
-    covers: Clearances, drill sizes, overlaps, silkscreen and library drift, against the rules stored in the board
+    covers: Clearances, drill sizes, overlaps and silkscreen, against the rules stored in the board (library drift is PCB-HYGIENE-001)
     limits: Whether those rules are the right ones for the fab or the application (FAB-RULES-001 checks the fab side; mains isolation is a project requirement); signal integrity; thermal
+  PCB-HYGIENE-001:
+    title: Library and drawing hygiene (kicad-cli ERC/DRC, advisory)
+    layer: kicad
+    modes: [full]
+    inputs: [.kicad_sch, .kicad_pcb, symbol and footprint library tables]
+    covers: Symbols and footprints missing from the installed libraries or differing from them, wire ends off the connection grid; reported, never gating
+    limits: Depends on the libraries installed where the check runs (a CI without the project's libraries reports every part); the design is checked on its embedded copies by PCB-ERC-001 and PCB-DRC-001
+  BRD-LINK-001:
+    title: Board-to-board connections (params.interconnects)
+    layer: circuit
+    modes: [fast, full]
+    inputs: [.kicad_sch of this board and of each mating board, params.interconnects]
+    covers: For each declared link (connector, mating board and connector, straight / reverse / table pin mapping), every mated pin pair on the two schematics - different known voltages (rail names, net_voltages of each board, fixed regulator outputs), a rail against a net driven by an output pin, an output pin driving the net on each board, a used pin mating an unconnected one, net names that do not match (except a TX/RX crossing), different electrical pin counts
+    limits: Connector orientation and keying on the real parts, mechanical alignment and stacking height; signals whose voltage is not known from names or net_voltages are compared by pin type and name only; current capacity of the connector
   PCB-CONN-001:
     title: Unrouted connections (kicad-cli pcb drc)
     layer: kicad
@@ -31,14 +45,14 @@ checks:
     layer: kicad
     modes: [fast, full]
     inputs: [.kicad_sch, .kicad_pcb]
-    covers: Same references, values, footprints and net per pin in schematic and PCB (values compared as numbers when both parse, so 4k7 = 4.7k = 4700 and 100n = 100nF)
+    covers: Same references, values, footprints and net per pin in schematic and PCB (values compared as numbers when both parse, so 4k7 = 4.7k = 4700 and 100n = 100nF; a net name KiCad derives from a pin, Net-(...) or unconnected-(...), is compared by the pins on it)
     limits: Errors present in both. Fields other than the value (MPN, voltage or tolerance fields). PCB-only parts (MountingHole, Fiducial, TestPoint, board_only) are ignored
   PCB-PINMAP-001:
     title: Symbol pin to footprint pad mapping
     layer: kicad
     modes: [fast, full]
     inputs: [.kicad_sch, .kicad_pcb]
-    covers: Symbol pins without a pad; electrical pads without a symbol pin (wrong package or numbering)
+    covers: Symbol pins without a pad (unless another pin of the same symbol on the same net has a pad carrying it, as when one contact is drawn as two pins); electrical pads without a symbol pin (wrong package or numbering)
     limits: A pin number that exists in both but means something else (MOD-PINOUT-001)
   PCB-FOOT-001:
     title: Approved footprints
@@ -52,22 +66,22 @@ checks:
     layer: board
     modes: [fast, full]
     inputs: [.kicad_pcb]
-    covers: Footprints without a 3D model
+    covers: Footprints that place a body on the board (they have pads and are not logos, markings, test points, mounting holes, fiducials, net ties, solder jumpers or wire pads, Tag-Connect cable footprints) without a 3D model
     limits: A model of the wrong part or wrongly oriented
   PCB-PADNET-001:
     title: Pads without a net
     layer: board
     modes: [fast, full]
     inputs: [.kicad_pcb]
-    covers: Electrical pads without a net
+    covers: Electrical pads without a net (plated mounting-hole pads excluded; a pad that is no pin of its symbol is reported once, by PCB-PINMAP-001)
     limits: Whether the pin was meant to be NC (each one must be waived with the reason)
   PCB-WIDTH-001:
     title: Power track width
     layer: board
     modes: [fast, full]
     inputs: [.kicad_pcb]
-    covers: Tracks narrower than min_power_width_mm on nets whose name looks like power
-    limits: Real current capacity (copper weight, length, temperature rise); power nets with unusual names (power_net_patterns); planes and zones
+    covers: On nets whose name looks like power (not a rail's control or status signals such as `VBUS_EN`, `VIN_SENSE`), chains of tracks narrower than the limit, leaving out stubs that end at a single capacitor or test point. The limit is the IPC-2221 width for the net's declared current (params.net_currents) with the board's stackup copper thickness and width_temp_rise_c, else the project's min_power_width_mm; with neither, a net with tracks under power_review_width_mm is a coverage gap asking for its current. Findings name the pads the thin tracks reach
+    limits: Which branch of a net carries the declared current (every non-stub thin chain is judged against the whole net current); planes and zones; via current; power nets with unusual names (power_net_patterns); IPC-2221 is conservative for short tracks
   PCB-PINS-001:
     title: Critical pins vs pins.yaml
     layer: board
@@ -87,7 +101,7 @@ checks:
     layer: board
     modes: [fast, full]
     inputs: [.kicad_pcb]
-    covers: Tracks, vias and pads of other nets inside the washer radius
+    covers: Outer-layer tracks, vias and pads of other nets inside the washer radius
     limits: Copper zones; screw heads larger than the configured radius
   CIR-POL-001:
     title: Polarity (LEDs, diodes, clamps, polarized capacitors)
@@ -143,7 +157,7 @@ checks:
     layer: fab
     modes: [fast, full]
     inputs: [.kicad_pcb, fab profile]
-    covers: Measured track width, via drill/pad/annular ring, plated-hole drill and annular ring, hole-to-hole distance, copper-to-board-edge distance (tracks, vias, pads, filled zones), board size, layer count and thickness
+    covers: Measured track width, via drill/pad/annular ring, plated-hole drill and annular ring (via limits for thermal vias inside an SMD pad), hole-to-hole distance (slots as capsules), copper-to-board-edge distance (tracks, vias, pads, filled zones), board size, layer count and thickness; a length is outside a limit only by more than 0.1 mil (2.54 µm), the resolution of a limit stated in mil; identical findings are grouped
     limits: Copper-to-copper spacing (FAB-RULES-001 + DRC); arcs approximated by 16 segments; non-rectangular custom pads approximated by their bounding box; silkscreen and solder mask
   ISO-SEP-001:
     title: Copper separation across isolation barriers
@@ -157,35 +171,35 @@ checks:
     layer: fab
     modes: [full]
     inputs: [Gerbers]
-    covers: Missing copper, mask or outline layers (X2 FileFunction)
+    covers: Missing copper, mask or outline layers (X2 FileFunction), in every export set (each directory of Gerbers and each zip archive holding them)
     limits: Paste and silkscreen (optional); Gerbers without X2 attributes
   FAB-STALE-001:
     title: Gerbers match the current PCB
     layer: fab
     modes: [full]
     inputs: [Gerbers, .kicad_pcb]
-    covers: Re-plots with kicad-cli and compares the geometry of apertures with a function (pads, tracks, vias, outline)
-    limits: Drill marks and other function-less apertures; plot-setting differences that do not move coordinates
+    covers: For each export set (a directory of Gerbers, or a zip archive such as the one uploaded to the fab, compared separately), re-plots the exported layers with kicad-cli (explicit layers and Gerber format, not the board's last plot settings; drill/place origin when the board plots with it) and compares, within 6 µm whatever the exported precision or unit, the positions of apertures with a function (pads, tracks, vias, outline) and of every mask and paste opening
+    limits: Legend (silkscreen) layers; aperture sizes (a pad resized in place, a mask expansion change); mask openings over non-plated holes (KiCad versions plot them differently); drill marks and other function-less apertures
   FAB-DRILL-001:
     title: Drill files match the PCB
     layer: fab
     modes: [fast, full]
     inputs: [.drl, .kicad_pcb]
-    covers: Drill diameters, counts and positions (±0.01 mm, absolute or aux origin) vs the PCB
+    covers: Drill diameters, counts and positions (within 0.02 mm, absolute or aux origin) vs the PCB, for each export set (directory or zip archive) separately
     limits: Slots; plated/non-plated mix-ups; Excellon without a decimal point (diameters only, positions listed as unchecked)
   FAB-BOM-001:
     title: BOM matches the PCB
     layer: fab
     modes: [fast, full]
     inputs: [BOM .csv, .kicad_pcb]
-    covers: Assembled parts missing from the BOM or extra in it, footprint per reference, empty supplier codes
+    covers: Assembled parts missing from the BOM or extra in it (grouped designators such as B1-B4 expanded; fitted padless parts such as heatsinks accepted; lines marked DNP must be DNP on the PCB), footprint per reference, lines with no supplier or manufacturer part number in any part-number column. With several BOM files and none chosen in params.fab.bom, the one the board agrees with best is checked and the others are named
     limits: Whether the supplier code is the right part (value, voltage, tolerance); stock
   FAB-CPL-001:
     title: CPL matches the PCB
     layer: fab
     modes: [fast, full]
     inputs: [CPL .csv, .kicad_pcb]
-    covers: Missing parts, position not at the pad centre (after detecting origin and Y direction), wrong side
+    covers: Missing parts, position not at the pad centre (after detecting origin and Y direction), wrong side; CSV or KiCad's ASCII position file (inches or mm); through-hole parts left out of an SMD-only file are warnings. With several placement files and none chosen in params.fab.cpl, the one the board agrees with best is checked and the others are named
     limits: Rotations - every fab house applies its own offsets (HUM-CPL-001)
   ASSERT:
     title: Declarative project assertion

@@ -1,5 +1,43 @@
 # Changelog
 
+## 0.6.0 — 2026-10-08
+Tested on ten public KiCad 8/9/10 boards. Every finding was checked against pcbnew and the design files; findings that were checker bugs are fixed below, each with a regression test. Seeded bank unchanged: 21 of 23.
+
+**Breaking**
+- The policy digest changes: sign-offs made under 0.5.1 or earlier must be renewed.
+- One board per verification. With several boards and none chosen, `init` lists them and exits 2, and `verify` reports DISCOVER FAIL. Choose one with `init PATH --board X.kicad_pro`.
+- `min_power_width_mm` has no base default: declare `params.net_currents` or set the limit (see PCB-WIDTH-001 below).
+- ERC/DRC waivers for library or off-grid findings are reported as stale: those findings moved to PCB-HYGIENE-001.
+
+**New**
+- BRD-LINK-001 checks declared board-to-board connections pin by pin on both schematics: voltage, role (ground, supply, signal), two outputs on one net, pin count. Declared in `params.interconnects`; excluded with a reason when nothing is declared.
+- `kicadverify profiles --from FILE` builds a fab profile from the fab's own KiCad rules (`.kicad_pro`, KiCad 5 template `.kicad_pcb`, `.kicad_dru`), citing the source of each value.
+- Built-in `oshpark-4-layer` profile (unconfirmed). No JLCPCB multilayer profile: the sources disagree; use `profiles --from` with JLCPCB's rules.
+- PCB-WIDTH-001 checks current capacity with IPC-2221 for the currents in `params.net_currents` (exact name or `~regex`), using the stackup copper thickness. Dead-end stubs to one capacitor or test point are not judged. Without a current, a thin power track is a coverage gap that names the net and the pads it reaches.
+- PCB-HYGIENE-001 (advisory): library-table and off-grid findings no longer block ERC/DRC. They depend on the machine, not the design.
+- Gerber and drill zip archives are checked. Each export set (folder or archive) is compared with the board on its own and hashed into the release manifest.
+- `init` finds fabrication outputs outside the KiCad folder (`hardware/fab/`), matched by board name.
+
+**Blind spots fixed** (checks that passed without looking)
+- KiCad ≤ 9 boards: track, via and zone nets were read as numbers, so ISO-SEP-001, PCB-WIDTH-001 and PCB-KEEPOUT-001 saw no named nets.
+- Arc tracks were measured as their chord; a mains arc 1.8 mm from low voltage measured 7 mm.
+- Negative rails (`-12V`) were read as positive.
+- FAB-STALE-001 re-plotted with the board's last plot settings: after a PDF plot nothing was compared. Layers are now re-plotted explicitly as Gerber, compared in mm, mask and paste included.
+- `pin_net` assertions fell back to the schematic net when the PCB pad had none.
+- A failed reviewer run was reused by the next `release`.
+
+**False FAILs fixed**
+- FAB-DRILL-001: holes matched by rounding; now within 0.02 mm.
+- FAB-DFM-001: slots measured as circles; via arrays in exposed pads judged as through-hole leads; 0.1 mil tolerance on fab limits (4 mil = 0.1016 mm); identical findings grouped.
+- FAB-BOM-001 / FAB-CPL-001: grouped designators (`R1-3`), DNP columns, every part-number column, KiCad ASCII `.pos`, fiducials and padless parts, SMD-only placement files, best match among several files.
+- PCB-PARITY-001 / PCB-PINMAP-001: auto-generated net names compared by pins; shared pads (KMR2); unconnected pins without a pad are warnings.
+- PCB-MODEL-001 / PCB-PADNET-001 / PCB-KEEPOUT-001: logos and jumpers, mounting holes, pads that are no pin of the symbol, inner layers.
+- Courtyard overlaps with a DNP alternative part are warnings.
+- kicad-happy FD-001, PP-001 and VM-001 default to warn.
+- A board at the top of a folder no longer picks up the Gerbers and drill files of another board in a sub-folder.
+- A BOM whose rows end with a trailing comma no longer crashes the fabrication checks.
+- `V-12V` is read as -12 V; `init --board` pre-fills outside outputs regardless of file-system order.
+
 ## 0.5.1 — 2026-10-07
 Usability and code-health release; no verifier logic changes (seeded bank unchanged, 21 of 23).
 - `kicadverify --version`; every command has a description in `--help`, listed in workflow order.

@@ -29,3 +29,22 @@ profiles:
     board_max_mm: [400, 500]
     board_min_mm: [6, 6]
     thickness_mm: [0.4, 2.0]
+  oshpark-4-layer:
+    title: OSH Park 4-layer prototype service
+    source:
+      kind: fab_capability
+      ref: OSH Park 4 Layer Prototype Service
+      url: https://docs.oshpark.com/services/four-layer/
+      confirmed: false
+      note: >-
+        Values from the OSH Park 4-layer KiCad template maintained by a KiCad lead developer
+        (github.com/sethhillbrand/kicad_templates, OshPark-4Layer, last changed 2019-10-24), read with
+        `kicadverify profiles --from`; the fab's page could not be fetched to confirm them. Limits the
+        template does not state (plated-hole annular ring, hole to hole, copper to edge, board size,
+        thickness) are reported as unchecked, not assumed.
+    layers_max: 4
+    min_track_mm: 0.127
+    min_spacing_mm: 0.127
+    min_via_drill_mm: 0.254
+    min_via_diameter_mm: 0.4572
+    min_via_annular_mm: 0.1016

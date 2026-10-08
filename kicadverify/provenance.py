@@ -172,7 +172,7 @@ def artifacts(root, proj):
             ds += list(p.rglob("*.pdf"))
     groups = {
         "design": config.design_files(root),
-        "fabrication": sorted(set(g) | set(d) | set(b) | set(c)),
+        "fabrication": sorted(set(g) | set(d) | set(b) | set(c) | set(fab.archives(root, proj["params"]))),
         "datasheets": sorted(set(ds)),
         # project.yaml is left out: `release` writes the status into it after verifying
         "config": [proj["dir"] / n for n in ("requirements.yaml", "waivers.yaml", "signoff.yaml",

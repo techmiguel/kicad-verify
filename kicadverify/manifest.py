@@ -23,7 +23,7 @@ def _files(root, proj):
     g, d, b, c = fab.find_outputs(root, proj["params"])
     groups = {
         "design": config.design_files(root),
-        "fabrication": sorted(set(g) | set(d) | set(b) | set(c)),
+        "fabrication": sorted(set(g) | set(d) | set(b) | set(c) | set(fab.archives(root, proj["params"]))),
         "config": [proj["dir"] / n for n in CONFIG_FILES if (proj["dir"] / n).exists()],
     }
     return {k: {evidence.rel(f, root): evidence.sha256(f) for f in v if Path(f).is_file()} for k, v in groups.items()}

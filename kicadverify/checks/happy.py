@@ -24,8 +24,19 @@ DEFAULT_OVERRIDES = {
                         # enforces rule areas (PCB-DRC-001). False FAILs on vias in areas that allow vias
     "LR-001": "warn",   # misses per-cathode resistors of RGB LEDs; CIR-LED-001 computes the
                         # current, and a missing resistor is a WARN there too (constant-current driver?)
+    "FD-001": "warn",   # fiducial count: what the assembler needs (JLCPCB adds its own rails; 2 global
+                        # fiducials are common practice), not a defect of the board
+    "PP-001": "warn",   # "IC power pin has no DC path to a rail": wrong on all three cases checked on
+                        # real boards (a buck bootstrap pin, an LDO input fed through a resistor, an
+                        # ASIC's internally generated I/O supply decoupled to ground)
+    "VM-001": "warn",   # voltage-domain crossing: the domain is inferred from rail names and the input
+                        # tolerance of each pin is not known (a PMBus regulator on a 5 V rail with 3.3 V
+                        # I/O was flagged)
 }
 SEV = {"fail": FAIL, "warn": WARN}
+# placement rules whose finding does not exist on the assembled board when a footprint involved is
+# DNP (an alternative laid over another part): reported as warnings that name the DNP parts
+DNP_PLACEMENT_RULES = {"PM-001"}
 
 
 def cache_dir():
@@ -88,19 +99,22 @@ def findings(data):
             yield name, f
 
 
-def to_results(data, label, params):
+def to_results(data, label, params, dnp=()):
     if data is None:
         return [Result("KH-ENGINE", WARN, "kicad-happy not installed: circuit/DFM detectors skipped "
                        "(run `kicadverify setup`)", outcome=NOT_VERIFIABLE)]
     cfg = params.get("kicad_happy") or {}
     overrides = {**DEFAULT_OVERRIDES, **(cfg.get("severity") or {})}
-    groups = {}
+    groups, seen = {}, set()
     for _source, f in findings(data):
         rule = f.get("rule_id") or f.get("detector") or "UNKNOWN"
         sev = (f.get("severity") or "info").lower()
         mapped = overrides.get(rule) or {"error": "fail", "warning": "warn"}.get(sev, "info")
         if mapped in ("info", "off"):
             continue
+        dnp_refs = sorted(set(f.get("components") or []) & set(dnp)) if rule in DNP_PLACEMENT_RULES else []
+        if dnp_refs and mapped == "fail":
+            mapped = "warn"
         g = groups.setdefault(rule, {"status": WARN, "items": []})
         if SEV[mapped] == FAIL:
             g["status"] = FAIL
@@ -108,6 +122,11 @@ def to_results(data, label, params):
         text = f.get("summary") or f.get("description") or rule
         if refs and refs not in (f.get("summary") or ""):
             text += f" [{refs}]"
+        if dnp_refs:
+            text += f" [DNP: {', '.join(dnp_refs)}]"
+        if (rule, text) in seen:  # the same finding repeated (one per pad of a thermal via array)
+            continue
+        seen.add((rule, text))
         g["items"].append({"key": (f.get("finding_id") or f"{rule}:{text}")[-60:],
                            "text": f"{text} ({f.get('confidence', '?')})"})
     res = [Result(f"KH-{rule}", g["status"], f"{label}: kicad-happy {rule}: {count(len(g['items']), 'finding')}",

@@ -1,5 +1,6 @@
 """ERC and DRC through kicad-cli (flags verified with --help on KiCad 10.0.5)."""
 import json
+import re
 import shutil
 import subprocess
 import tempfile
@@ -13,6 +14,38 @@ PARITY_TYPES = {
     "missing_footprint", "extra_footprint", "net_conflict", "footprint_symbol_mismatch",
     "duplicate_footprints", "footprint_filters_mismatch", "schematic_parity",
 }
+
+
+# findings about the machine's library tables or the drawing, not about the design that is built: a
+# library not installed where the check runs (a git submodule not cloned, a project library missing
+# from the CI's tables), the embedded copy of a symbol or footprint differing from the installed
+# library version, a wire end off the connection grid (connectivity itself is checked by the other
+# ERC types). Reported under PCB-HYGIENE-001, which does not gate
+HYGIENE_TYPES = {"lib_symbol_issues", "lib_symbol_mismatch", "footprint_link_issues", "lib_footprint_issues",
+                 "lib_footprint_mismatch", "endpoint_off_grid"}
+
+
+def _hygiene(raw, label, source, evidence):
+    vs = [_violation(v, f"hyg:{label}") for v in raw]
+    return Result("PCB-HYGIENE-001", WARN if vs else PASS,
+                  f"{label}: {count(len(vs), source + ' library/drawing finding')}", violations=vs, evidence=evidence)
+
+
+# placement conflicts that do not exist on the assembled board when one of the footprints is DNP:
+# an alternative part laid over another (a regulator footprint over a buck converter, two connector
+# options). Drilled-hole conflicts stay errors: the holes are drilled whether the part is fitted or not
+DNP_PLACEMENT_TYPES = {"courtyards_overlap", "pth_inside_courtyard", "npth_inside_courtyard"}
+REF_RE = re.compile(r"(?:Footprint|of) ([^\s;()\[\]]+)")
+
+
+def _dnp_downgrade(v, dnp):
+    """A DNP-alternative placement conflict becomes a warning that names the DNP footprints."""
+    if v.get("type") not in DNP_PLACEMENT_TYPES or v.get("severity") != "error" or not dnp:
+        return v
+    refs = sorted({m for i in v.get("items", []) for m in REF_RE.findall(i.get("description", ""))} & set(dnp))
+    if not refs:
+        return v
+    return {**v, "severity": "warning", "description": f"{v.get('description')} [DNP: {', '.join(refs)}]"}
 
 
 def _run(args, timeout=900):
@@ -67,14 +100,17 @@ def erc(sch, label, evidence_dir=None):
             return [_tool_failed(cid, label, "ERC produced no report")]
         data = json.loads(out.read_text(encoding="utf-8"))
         kept = _keep(out, evidence_dir, f"{label}.erc.json")
-    raw = [v for s in data.get("sheets", []) for v in s.get("violations", [])]
+    allv = [v for s in data.get("sheets", []) for v in s.get("violations", [])]
+    raw = [v for v in allv if v.get("type") not in HYGIENE_TYPES]
     vs = [_violation(v, f"erc:{label}") for v in raw]
-    return [Result(cid, _status(raw), f"{label}: {count(len(raw), 'ERC violation')}", violations=vs,
-                   evidence=[str(sch)] + ([kept] if kept else []))]
+    ev = [str(sch)] + ([kept] if kept else [])
+    return [Result(cid, _status(raw), f"{label}: {count(len(raw), 'ERC violation')}", violations=vs, evidence=ev),
+            _hygiene([v for v in allv if v.get("type") in HYGIENE_TYPES], label, "ERC", ev)]
 
 
-def drc(pcb, label, evidence_dir=None):
-    """DRC (zones refilled in memory, file untouched) and unrouted connections. Parity lives in parity.py."""
+def drc(pcb, label, evidence_dir=None, dnp=()):
+    """DRC (zones refilled in memory, file untouched) and unrouted connections. Parity lives in parity.py.
+    `dnp`: references of DNP footprints, whose placement conflicts are reported as warnings."""
     if not Path(pcb).exists():
         return [not_verifiable("PCB-DRC-001", f"{label}: no PCB"), not_verifiable("PCB-CONN-001", f"{label}: no PCB")]
     with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as td:
@@ -88,9 +124,11 @@ def drc(pcb, label, evidence_dir=None):
             return [_tool_failed(c, label, "DRC produced no report") for c in ("PCB-DRC-001", "PCB-CONN-001")]
         data = json.loads(out.read_text(encoding="utf-8"))
         kept = _keep(out, evidence_dir, f"{label}.drc.json")
-    drc_raw = [v for v in data.get("violations", []) if v.get("type") not in PARITY_TYPES]
+    allv = [_dnp_downgrade(v, dnp) for v in data.get("violations", []) if v.get("type") not in PARITY_TYPES]
+    drc_raw = [v for v in allv if v.get("type") not in HYGIENE_TYPES]
     unconn = data.get("unconnected_items", [])
-    res = []
+    res = [_hygiene([v for v in allv if v.get("type") in HYGIENE_TYPES], label, "DRC",
+                    [str(pcb)] + ([kept] if kept else []))]
     vs = [_violation(v, f"drc:{label}") for v in drc_raw]
     res.append(Result("PCB-DRC-001", _status(drc_raw), f"{label}: {count(len(drc_raw), 'DRC violation')}",
                       violations=vs, evidence=[str(pcb)] + ([kept] if kept else [])))

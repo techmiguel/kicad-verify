@@ -6,10 +6,12 @@ import sys
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
+import yaml
+
 from . import (__version__, attest, config, interface, manifest, netlist, outputs, provenance, report, requirements,
                review, signoff, waivers)
 from .checks import assertions, board as board_mod
-from .checks import circuit, dfm, fab, happy, isolation, kicad_cli, parity
+from .checks import circuit, dfm, fab, happy, interconnect, isolation, kicad_cli, parity
 from .report import FAIL, PASS, SKIP, WARN, Result
 
 EXIT_OK, EXIT_BLOCKED, EXIT_CONFIG, EXIT_NO_PROJECT = 0, 1, 2, 3
@@ -38,6 +40,14 @@ def _lint(proj):
     return requirements.lint(proj["requirements"], proj["excluded"], assertions.TYPES)
 
 
+def _ambiguous(root):
+    found = config.discover(root)
+    names = "\n".join(f"  {os.path.relpath(k['pro'], root)}" for k in found)
+    return (f"{len(found)} KiCad projects under {root}; kicad-verify reviews one board at a time. Choose one:\n"
+            f"{names}\n  kicadverify init {root} --board <one of them>"
+            "   (or `board:` in verification/pcb/project.yaml)")
+
+
 def checks(root, proj, mode):
     """Every deterministic verifier. Returns (results before waivers, designs, kicad-happy summaries)."""
     params = proj["params"]
@@ -47,6 +57,9 @@ def checks(root, proj, mode):
     results, designs, kh_summaries, jobs = [], {}, {}, []
     if not kicads:
         results.append(Result("DISCOVER", SKIP, "no KiCad project found"))
+    elif len(kicads) > 1:  # never mixed: the checks and the design hash are about one board
+        results.append(Result("DISCOVER", FAIL, _ambiguous(root).replace("\n", " ")))
+        kicads = []
     gerber_dir = None
     gerbers, _, _, _ = fab.find_outputs(root, params)
     if gerbers:
@@ -67,16 +80,21 @@ def checks(root, proj, mode):
             results += cres
         except Exception as e:
             results.append(Result("CIR-ENGINE", FAIL, f"{label}: circuit checks crashed: {e}"))
+        try:
+            results += interconnect.run(nl, root, label, params, cache)
+        except Exception as e:
+            results.append(Result("BRD-LINK-001", FAIL, f"{label}: board-to-board check crashed: {e}"))
         if k["pcb"].exists():
             try:
                 b = board_mod.load(k["pcb"])
-                results += board_mod.run(b, label, proj, k["pcb"])
+                results += board_mod.run(b, label, proj, k["pcb"], nl)
                 results += parity.run(b, nl, label)
                 results += dfm.run(b, k["pro"], label, params, k["pcb"])
                 results += isolation.run(b, k["pro"], label, params, k["pcb"])
                 results += fab.run(root, k["pcb"], b, label, params, mode)
             except Exception as e:
                 results.append(Result("PCB-PARSE", FAIL, f"{label}: could not parse or check the PCB: {e}"))
+        dnp = {fp["ref"] for fp in b["footprints"] if fp["dnp"]} if b else set()
         try:
             results += assertions.run(proj["requirements"], nl, b, label)
         except Exception as e:
@@ -84,14 +102,14 @@ def checks(root, proj, mode):
         if (params.get("kicad_happy") or {}).get("enabled", True):
             try:
                 kh = happy.analyze(k, gerber_dir if mode == "full" else None, cache / "kicad_happy" / label, params)
-                results += happy.to_results(kh, label, params)
+                results += happy.to_results(kh, label, params, dnp)
                 kh_summaries[label] = happy.summary_for_review(kh)
             except Exception as e:
                 results.append(Result("KH-ENGINE", WARN, f"{label}: kicad-happy failed: {e}",
                                       outcome=report.NOT_VERIFIABLE))
         if mode == "full":
             if k["pcb"].exists():
-                jobs.append(lambda p=k["pcb"], lab=label: kicad_cli.drc(p, lab, ev_dir))
+                jobs.append(lambda p=k["pcb"], lab=label, d=dnp: kicad_cli.drc(p, lab, ev_dir, d))
                 jobs.append(lambda kk=k: _interface(kk, params, proj))
             jobs.append(lambda s=k["sch"], lab=label: kicad_cli.erc(s, lab, ev_dir))
     if jobs:  # ERC, DRC and the STEP export take tens of seconds each: run them in parallel
@@ -267,6 +285,8 @@ def build_parser():
                            help="run the reviewer even when a review for this exact design is on record")
         if name == "init":
             p.add_argument("--ci", choices=["github"], help="also write a CI workflow")
+            p.add_argument("--board", help="the .kicad_pro to verify when the folder holds several boards "
+                                           "(recorded as `board:` in verification/pcb/project.yaml)")
         if name == "requirements":
             p.add_argument("--lint", action="store_true", help="validate the requirement set; exit 2 on errors")
             p.add_argument("--markdown", action="store_true", help="print the requirement table as Markdown")
@@ -288,7 +308,12 @@ def build_parser():
     p.add_argument("--path", default=".")
     p = sub.add_parser("checks", help="list the verifiers with what they cover and do not cover")
     p.add_argument("--markdown", action="store_true", help="print the table as Markdown (docs/COVERAGE.md)")
-    sub.add_parser("profiles", help="list the built-in fab capability profiles")
+    p = sub.add_parser("profiles", help="list the built-in fab capability profiles, or make one from a fab's "
+                                        "KiCad rules (--from)")
+    p.add_argument("--from", dest="from_file", metavar="FILE",
+                   help="a fab's published KiCad rules (.kicad_pro, KiCad 5 .kicad_pcb template or .kicad_dru): "
+                        "print a profile for params.fab.profile in requirements.yaml")
+    p.add_argument("--name", help="profile name (default: the file name)")
     sub.add_parser("setup", help="download the pinned kicad-happy engine")
     p = sub.add_parser("install-claude", help="install hooks and skills into ~/.claude")
     p.add_argument("--no-hooks", action="store_true", help="install the skills only")
@@ -315,6 +340,27 @@ def main(argv=None):
             f"{cid:<16} {c.get('layer', ''):<9} {'/'.join(c.get('modes', [])):<10} {c['title']}"
             for cid, c in requirements.registry().items()))
         return 0
+    if a.cmd == "profiles" and a.from_file:
+        from . import fabimport
+        f = Path(a.from_file)
+        if f.suffix.lower() not in (".kicad_pro", ".kicad_pcb", ".kicad_dru") or not f.is_file():
+            print(f"{f}: expected an existing .kicad_pro, .kicad_pcb or .kicad_dru", file=sys.stderr)
+            return EXIT_CONFIG
+        try:
+            prof, notes = fabimport.profile_from(f, a.name)
+        except ValueError as e:
+            print(e, file=sys.stderr)
+            return EXIT_CONFIG
+        limits = [k for k in prof if k not in ("name", "source")]
+        missing = [k for k in dfm.MEASURED if k not in limits]
+        print("# paste under params.fab in verification/pcb/requirements.yaml; check the values against the fab\n"
+              "# and set confirmed: true once they are its current ones")
+        print(yaml.safe_dump({"profile": prof}, sort_keys=False, allow_unicode=True).rstrip())
+        for k in limits:
+            print(f"#   {k}: {notes.get(k, '')}")
+        if missing:
+            print(f"# not in the file, reported as unchecked by FAB-DFM-001 until added: {', '.join(missing)}")
+        return 0
     if a.cmd == "profiles":
         for name, pr in dfm.builtin_profiles().items():
             src = pr.get("source") or {}
@@ -326,15 +372,48 @@ def main(argv=None):
     if a.cmd == "check-attestation":
         return _check_attestation(a)
 
-    root, initialised = config.find_root(a.path)
+    chosen = None
+    start = Path(a.path)
+    if str(a.path).lower().endswith(".kicad_pro"):  # `verify path/to/board.kicad_pro` names the board
+        chosen, start = start.resolve(), start.parent
+    root, initialised = config.find_root(start)
     if root is None:
         print("No KiCad project (.kicad_pro) found from", a.path, file=sys.stderr)
         return EXIT_NO_PROJECT
+    if getattr(a, "board", None):  # as typed, or relative to the project root (as the hint lists them)
+        given = Path(a.board)
+        chosen = next((c.resolve() for c in (given, root / given) if c.is_file()), None)
+        if chosen is None or chosen.suffix.lower() != ".kicad_pro":
+            print(f"--board {a.board}: no such .kicad_pro (from {Path.cwd()} or {root})", file=sys.stderr)
+            return EXIT_CONFIG
+    if chosen is None and initialised and start.resolve() != root.resolve():
+        # run from inside another board's folder: say so instead of verifying the recorded board
+        here = sorted(start.resolve().glob("*.kicad_pro"))
+        current = [k["pro"].resolve() for k in config.discover(root)]
+        if here and not set(here) & set(current):
+            print(f"{start} holds {here[0].name}, but the verification in {root} is about "
+                  f"{', '.join(c.name for c in current) or 'another board'}. Verify that board on its own: "
+                  f"kicadverify init {start}", file=sys.stderr)
+            return EXIT_CONFIG
     if a.cmd == "init" or not initialised:
-        created = config.init_project(root, ci=getattr(a, "ci", None))
+        if not chosen and len(config.discover(root)) > 1 and not (root / config.DIRNAME / "project.yaml").exists():
+            print(_ambiguous(root), file=sys.stderr)
+            return EXIT_CONFIG
+        existed = (root / config.DIRNAME / "project.yaml").exists()
+        created = config.init_project(root, ci=getattr(a, "ci", None), board=chosen)
         if a.cmd == "init":
+            if existed and chosen:
+                config.set_board(root, chosen)
+                print(f"Board: {os.path.relpath(chosen, root)} (verification/pcb/project.yaml)")
             print("\n".join(["Created:"] + [f"  {c}" for c in created]) if created else "Already initialised.")
             return 0
+    elif chosen:
+        current = [k["pro"].resolve() for k in config.discover(root)]
+        if current != [chosen]:
+            print(f"The verification in {root} is about {', '.join(c.name for c in current) or 'no board'}, not "
+                  f"{chosen.name}: `kicadverify init {root} --board {os.path.relpath(chosen, root)}` changes it",
+                  file=sys.stderr)
+            return EXIT_CONFIG
     proj = config.load_project(root)
     if a.cmd in ("verify", "attest", "review", "release", "interface", "datasheets") and not config.kicad_cli_found():
         print(f"kicad-cli not found ({config.KICAD_CLI}): ERC, DRC, the netlist and the Gerber re-plot cannot run, "
@@ -374,6 +453,9 @@ def main(argv=None):
         print(f"Signed {a.id} ({'FAIL' if a.fail else 'pass'}) for design {config.design_hash(root)[:12]} "
               f"under policy {provenance.policy(proj)['digest'][7:19]}")
         return 0
+    if a.cmd in ("datasheets", "interface") and len(config.discover(root)) > 1:
+        print(_ambiguous(root), file=sys.stderr)
+        return EXIT_CONFIG
     if a.cmd == "datasheets":
         from . import datasheets
         for k in config.discover(root):

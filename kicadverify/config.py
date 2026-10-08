@@ -54,11 +54,11 @@ def load_yaml(path, default=None):
 def walk(root, max_depth=4):
     root = Path(root)
     base = len(root.parts)
-    for dp, dns, fns in os.walk(root):
-        dns[:] = [d for d in dns if d not in SKIP_DIRS and not d.startswith(".")]
+    for dp, dns, fns in os.walk(root):  # sorted: the order must not depend on the file system
+        dns[:] = sorted(d for d in dns if d not in SKIP_DIRS and not d.startswith("."))
         if len(Path(dp).parts) - base >= max_depth:
             dns[:] = []
-        for f in fns:
+        for f in sorted(fns):
             yield Path(dp) / f
 
 
@@ -72,16 +72,37 @@ def find_root(start):
     for d in chain:
         if any(d.glob("*.kicad_pro")) or any((d / "hardware").glob("*.kicad_pro")):
             return d, False
+    if p.is_dir() and candidates(p):  # boards in sub-folders: discover() chooses or asks
+        return p, False
     return None, False
 
 
+def _board(pro):
+    pro = Path(pro)
+    return {"pro": pro, "pcb": pro.with_suffix(".kicad_pcb"), "sch": pro.with_suffix(".kicad_sch"),
+            "label": pro.stem}
+
+
+def candidates(root):
+    """Every KiCad project under `root` (the boards a repository holds)."""
+    return sorted((_board(f) for f in walk(root) if f.suffix.lower() == ".kicad_pro"), key=lambda k: str(k["pro"]))
+
+
 def discover(root):
-    out = []
-    for f in walk(root):
-        if f.suffix.lower() == ".kicad_pro":
-            out.append({"pro": f, "pcb": f.with_suffix(".kicad_pcb"), "sch": f.with_suffix(".kicad_sch"),
-                        "label": f.stem})
-    return sorted(out, key=lambda k: str(k["pro"]))
+    """The board this verification is about: [board], [] when there is none, or every candidate when
+    several are found and none is chosen (the caller reports the ambiguity instead of mixing boards).
+    `board:` in verification/pcb/project.yaml chooses; otherwise a single project, or the single one
+    in `root` itself, is the board."""
+    root = Path(root)
+    chosen = (load_yaml(root / DIRNAME / "project.yaml", {}) or {}).get("board")
+    if chosen:
+        pro = root / chosen
+        return [_board(pro)] if pro.exists() else []
+    found = candidates(root)
+    if len(found) <= 1:
+        return found
+    top = [k for k in found if k["pro"].parent == root]
+    return top if len(top) == 1 else found
 
 
 def artifact_hash(root, include_outputs=True):
@@ -106,10 +127,42 @@ def artifact_hash(root, include_outputs=True):
 DESIGN_SUFFIXES = (".kicad_pcb", ".kicad_sch", ".kicad_pro", ".kicad_dru")
 
 
+def foreign_dirs(root):
+    """Folders of the other KiCad projects under `root` once a board is chosen: their files belong to
+    another board (its design files, its Gerbers). Folders holding the chosen board are never foreign."""
+    boards = discover(root)
+    if len(boards) != 1:
+        return set()
+    me = boards[0]["pro"]
+    mine = {me.parent, *me.parent.parents}
+    return {k["pro"].parent for k in candidates(root) if k["pro"] != me and k["pro"].parent not in mine}
+
+
+def is_foreign(f, dirs):
+    return any(d in dirs for d in Path(f).parents)
+
+
 def design_files(root):
     """KiCad files that define the design. .kicad_pro and .kicad_dru hold the design rules and net
-    classes the DRC is judged against, so they are part of the design."""
-    return [f for f in sorted(walk(root)) if f.suffix.lower() in DESIGN_SUFFIXES]
+    classes the DRC is judged against, so they are part of the design. Only the board's own files
+    count: its folder, without sub-folders that hold another KiCad project (another board of the same
+    repository must not change this board's design hash and invalidate its sign-offs)."""
+    boards = discover(root)
+    if len(boards) != 1:
+        return [f for f in sorted(walk(root)) if f.suffix.lower() in DESIGN_SUFFIXES]
+    me = boards[0]["pro"]
+    base = me.parent
+    other_dirs = foreign_dirs(root)
+    other_stems = {k["pro"].stem for k in candidates(root)
+                   if k["pro"] != me and k["pro"].parent == base}  # another project in the same folder
+    out = []
+    for f in sorted(walk(base)):
+        if f.suffix.lower() not in DESIGN_SUFFIXES or is_foreign(f, other_dirs):
+            continue
+        if f.parent == base and f.stem in other_stems:
+            continue
+        out.append(f)
+    return out
 
 
 def design_hash(root):
@@ -144,6 +197,9 @@ def load_project(root):
                                                                     "by": d.get("by"), "date": d.get("date")}
         excluded.append(e)
         reqs.pop(e["id"], None)
+    if not params.get("interconnects") and reqs.pop("BRD-LINK-001", None):
+        excluded.append({"id": "BRD-LINK-001",
+                         "reason": "no board-to-board connection declared (params.interconnects)"})
     if (params.get("fab") or {}).get("assembly", True) is False:
         for rid in ("FAB-BOM-001", "FAB-CPL-001", "HUM-CPL-001"):
             if reqs.pop(rid, None):
@@ -164,7 +220,33 @@ def _merge(a, b):
     return out
 
 
-def init_project(root, ci=None):
+def _write_detected_outputs(root, req_file):
+    """Pre-fills params.fab with fabrication outputs found outside the project folder."""
+    from .checks import fab
+    found = fab.detect_outside(root)
+    if not found:
+        return
+    lines = "".join(f"    {k}: {v}\n" for k, v in found.items())
+    text = req_file.read_text(encoding="utf-8")
+    marker = "    profile: null"
+    i = text.find(marker)
+    if i < 0:
+        return
+    j = text.index("\n", i) + 1
+    req_file.write_text(text[:j] + "    # found by `kicadverify init` outside the project folder: check them\n" + lines
+                        + text[j:], encoding="utf-8")
+
+
+def set_board(root, pro):
+    """Records the board in verification/pcb/project.yaml (replacing a previous `board:`)."""
+    f = Path(root) / DIRNAME / "project.yaml"
+    rel = os.path.relpath(Path(pro).resolve(), Path(root).resolve()).replace("\\", "/")
+    lines = [ln for ln in f.read_text(encoding="utf-8").splitlines() if not ln.startswith("board:")]
+    lines.append(f"board: {rel}            # the board this verification is about")
+    f.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def init_project(root, ci=None, board=None):
     root = Path(root)
     vd = root / DIRNAME
     vd.mkdir(parents=True, exist_ok=True)
@@ -175,7 +257,14 @@ def init_project(root, ci=None):
             shutil.copy(t, dst)
             created.append(dst)
             if dst.name == "project.yaml":
-                dst.write_text(dst.read_text(encoding="utf-8").replace("{{name}}", root.name), encoding="utf-8")
+                text = dst.read_text(encoding="utf-8").replace("{{name}}", root.name)
+                if board:
+                    rel = os.path.relpath(Path(board).resolve(), root.resolve()).replace("\\", "/")
+                    text += f"board: {rel}            # the board this verification is about\n"
+                dst.write_text(text, encoding="utf-8")
+    # after the loop: detection needs `board:` from project.yaml, whatever order the templates come in
+    if vd / "requirements.yaml" in created:
+        _write_detected_outputs(root, vd / "requirements.yaml")
     if ci == "github":
         repo = next((d for d in [root, *root.parents] if (d / ".git").exists()), root)
         wf = repo / ".github" / "workflows" / "hw-verify.yml"

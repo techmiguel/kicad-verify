@@ -31,15 +31,16 @@ def net_voltage_from_name(name):
     for k, v in NAMED_V.items():
         if u == k or u.endswith("_" + k):
             return v
-    m = re.search(r"(?<![A-Z0-9])\+?(\d+)V(\d+)(?![0-9])", u)            # 3V3, 1V8, +12V0
+    # a minus sign right before the number is a negative rail: -12V, -3V3, V-12V (it was read as +12 V)
+    m = re.search(r"(?:^|[_/])(?:VCC|VDD|VIN|V)_?(-?)(\d+)V(\d+)?$", u)  # VCC_3V3, V-12V, VDD_-5V
     if m:
-        return float(f"{m.group(1)}.{m.group(2)}")
-    m = re.search(r"(?<![A-Z0-9.])\+?(\d+(?:\.\d+)?)V(?![A-Z0-9])", u)   # +5V, 12V, 3.3V
+        return float(m.group(1) + m.group(2) + ("." + m.group(3) if m.group(3) else ""))
+    m = re.search(r"(?<![A-Z0-9])([+-]?)(\d+)V(\d+)(?![0-9])", u)          # 3V3, 1V8, +12V0, -3V3
     if m:
-        return float(m.group(1))
-    m = re.search(r"(?:^|_)(?:VCC|VDD|VIN|V)_?(\d+)V(\d+)?$", u)
+        return float(f"{m.group(1) if m.group(1) == '-' else ''}{m.group(2)}.{m.group(3)}")
+    m = re.search(r"(?<![A-Z0-9.])([+-]?)(\d+(?:\.\d+)?)V(?![A-Z0-9])", u)  # +5V, 12V, 3.3V, -12V
     if m:
-        return float(m.group(1) + ("." + m.group(2) if m.group(2) else ""))
+        return float(("-" if m.group(1) == "-" else "") + m.group(2))
     return None
 
 

@@ -19,7 +19,7 @@ Gates (`dev`, `fab`, `release`) decide from those states. Nothing is VERIFIED by
 Requires Python 3.10+ and KiCad 10 (`kicad-cli`, tested with 10.0.5 and 10.0.6).
 
 ```bash
-pip install "git+https://github.com/techmiguel/kicad-verify@v0.5.1"
+pip install "git+https://github.com/techmiguel/kicad-verify@v0.6.0"
 kicadverify setup                               # downloads the pinned kicad-happy engine
 kicadverify init path/to/project --ci github    # verification/pcb/ + a GitHub Actions workflow
 kicadverify verify path/to/project --gate fab   # ready to fabricate? (10-20 s on a two-layer board)
@@ -44,6 +44,8 @@ If `kicad-cli` is not on `PATH` or in the default install folder, set `KICAD_CLI
 
 ## What it catches
 
+Tested on ten public KiCad 8, 9 and 10 boards (2 and 4 layers, hierarchical, multi-board repositories); every false alarm found there is fixed and covered by a regression test ([CHANGELOG.md](CHANGELOG.md)).
+
 Defects seeded into a board that was fabricated and assembled ([smartRele](https://github.com/techmiguel/smartRele)), configured with the reference set. **21 of 23 block the fab gate**; the unmodified board passes it. Method and full table: [docs/RESULTS.md](docs/RESULTS.md).
 
 | Seeded defect | Requirement FAILED |
@@ -61,6 +63,7 @@ Defects seeded into a board that was fabricated and assembled ([smartRele](https
 | CPL at the body centre; part missing from the CPL or BOM | FAB-CPL-001, FAB-BOM-001 |
 | Track inside a mounting-hole washer area | PCB-KEEPOUT-001 |
 | EN pull-up 10 kΩ → 10 MΩ, fuse 500 mA → 50 A | no rule: caught by the reviewer at the release gate |
+| Board-to-board header reversed (ground on the I2C lines of the mating board) | BRD-LINK-001 (declared connections) |
 
 ## How it works
 
@@ -111,7 +114,7 @@ requirements:
 ## Commands
 
 ```bash
-kicadverify init PATH [--ci github]          # create verification/pcb/ (and a CI workflow)
+kicadverify init PATH [--board X.kicad_pro] [--ci github]  # verification/pcb/ for one board (and a CI workflow)
 kicadverify verify PATH [--gate fab] [--fast] # deterministic checks; --fast skips ERC/DRC/re-plot (~4 s)
 kicadverify review PATH                      # + independent reviewer (Claude Code CLI, 2-5 min)
 kicadverify signoff HUM-FIT-001 --by "Name" --path PATH [--fail --note "..."]
@@ -120,7 +123,7 @@ kicadverify audit PATH                       # do the files still match the rele
 kicadverify explain CIR-POL-001 --path PATH  # source, evidence and coverage behind one verdict
 kicadverify requirements PATH [--lint]       # traceability table, or validate the requirement set
 kicadverify checks                           # what each verifier covers and does not
-kicadverify profiles                         # built-in fab capability profiles
+kicadverify profiles [--from FAB.kicad_dru]  # built-in fab profiles, or one made from a fab's KiCad rules
 ```
 
 `kicadverify --help` lists every command. `verify` writes `verification/pcb/reports/verification_report.md` and `verify_report.json`; `--junit FILE` and `--markdown FILE` write copies for CI. Exit codes: 0 the gate passes, 1 blocked, 2 the requirement set has errors, 3 no KiCad project.
@@ -133,7 +136,11 @@ Install a tagged release rather than `main`: a new version can change verdicts a
 
 ## Limits
 
-No tool can prove a board works. VERIFIED means "no defect of this kind within this coverage". The deterministic checks remove classes of mistakes; the reviewer finds some design-intent problems and can miss others; sign-offs cover what only a person with the parts in hand can check. The built-in JLCPCB profile is marked unconfirmed until someone checks it against the fab's current capabilities, and other fabs or layer counts need a profile in the project.
+No tool can prove a board works. VERIFIED means "no defect of this kind within this coverage". The deterministic checks remove classes of mistakes; the reviewer finds some design-intent problems and can miss others; sign-offs cover what only a person with the parts in hand can check.
+
+One run verifies one board. Connections to other boards are checked only where they are declared (`params.interconnects`, BRD-LINK-001).
+
+Fab profiles: the built-in JLCPCB 2-layer and OSH Park 4-layer profiles are marked unconfirmed until someone checks them against the fab's current capabilities. For any other fab or process, build one from the fab's own KiCad rules with `kicadverify profiles --from`.
 
 ## Development
 

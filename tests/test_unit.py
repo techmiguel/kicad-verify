@@ -55,6 +55,8 @@ def test_net_voltage_from_name():
     f = circuit.net_voltage_from_name
     assert f("+3V3") == 3.3 and f("/+5V") == 5 and f("GND") == 0 and f("AGND") == 0
     assert f("VBUS") == 5 and f("+1V8_RF") == 1.8 and f("/RELAY") is None and f("Net-(D2-K)") is None
+    assert f("-12V") == -12 and f("/-5V") == -5 and f("-3V3") == -3.3  # read as positive before
+    assert f("V-12V") == -12 and f("/pwr/V-3V3") == -3.3 and f("VCC_3V3") == 3.3 and f("VIN_12V") == 12
 
 
 def test_fixed_regulator_vout():
@@ -169,3 +171,288 @@ def test_evidence_must_be_verbatim(tmp_path):
     assert not bad and "not found" in why
     short, _ = review.check_evidence({"file": "f.txt", "quote": "EN"}, tmp_path, tmp_path)
     assert not short
+
+
+def _fp(ref, name, pads, attr=(), value=""):
+    return {"ref": ref, "name": name, "value": value, "attr": list(attr), "dnp": False, "models": [],
+            "pads": [{"number": n, "net": net, "type": ty, "drill": 1.0 if "hole" in ty else None, "drill2": None,
+                      "x": 0.0, "y": 0.0, "size": (1.0, 1.0), "layers": ["F.Cu"]} for n, net, ty in pads]}
+
+
+def test_pinmap_accepts_symbol_pins_drawn_on_a_shared_pad():
+    # a 4-pin push-button symbol (1/4 and 2/3 are the two contacts) on the 2-contact KMR2 footprint
+    pins = {n: {"name": n, "type": "passive"} for n in "1234"}
+    nl = {"components": {"SW1": {"value": "SW", "footprint": "B:KMR2", "pins": pins}},
+          "pin_net": {("SW1", "1"): "GND", ("SW1", "4"): "GND", ("SW1", "2"): "/EN", ("SW1", "3"): "/EN"}}
+    ok = {"footprints": [_fp("SW1", "B:KMR2", [("1", "GND", "smd"), ("1", "GND", "smd"),
+                                                ("2", "/EN", "smd"), ("2", "/EN", "smd")], value="SW")]}
+    r = parity.run(ok, nl, "t")[1]
+    assert r.status == PASS, r.violations
+    # a renumbered pad keeps its net but is no symbol pin: still a missing pad
+    bad = {"footprints": [_fp("SW1", "B:KMR2", [("1", "GND", "smd"), ("2", "/EN", "smd"), ("9", "/EN", "smd")],
+                              value="SW")]}
+    nl["pin_net"] = {("SW1", "1"): "GND", ("SW1", "2"): "GND", ("SW1", "3"): "/EN", ("SW1", "4"): "/EN"}
+    nl["components"]["SW1"]["pins"] = pins
+    r = parity.run(bad, nl, "t")[1]
+    assert r.status == FAIL
+    # a QFN whose exposed pad (pin 33, GND) is missing from the footprint: pin 1 is GND too, on one pad
+    qpins = {"1": {"name": "GND", "type": "power_in"}, "2": {"name": "IO", "type": "bidirectional"},
+             "33": {"name": "GND", "type": "power_in"}}
+    qnl = {"components": {"U1": {"value": "MCU", "footprint": "Q:QFN-32", "pins": qpins}},
+           "pin_net": {("U1", "1"): "GND", ("U1", "2"): "/IO", ("U1", "33"): "GND"}}
+    qfn = {"footprints": [_fp("U1", "Q:QFN-32", [("1", "GND", "smd"), ("2", "/IO", "smd")], value="MCU")]}
+    r = parity.run(qfn, qnl, "t")[1]
+    assert r.status == FAIL and "U1: symbol pin 33 (GND) has no pad" in r.violations[0]["text"]
+    # a pin unconnected in the schematic without a pad (one header row of a module not used): a
+    # warning to confirm, not a lost connection
+    qnl["pin_net"][("U1", "33")] = "unconnected-(U1-GND-Pad33)"
+    qfn["footprints"][0]["pads"][0]["net"] = "GND"
+    r = parity.run(qfn, qnl, "t")[1]
+    assert r.status == WARN and r.violations[0]["text"].endswith("(the pin is unconnected in the schematic)")
+
+
+def test_parity_compares_kicad_derived_net_names_by_members():
+    pins = {p: {"name": "VBUS", "type": "passive"} for p in ("A4", "A9", "B4", "B9")}
+    pins["A1"] = {"name": "GND", "type": "passive"}
+    nl = {"components": {"J3": {"value": "USB_C", "footprint": "C:USB", "pins": pins}},
+          "pin_net": {**{("J3", p): "unconnected-(J3-VBUS-PadA4)" for p in ("A4", "A9", "B4", "B9")},
+                      ("J3", "A1"): "GND"}}
+    pads = [(p, "Net-(J3-VBUS-PadA4)", "smd") for p in ("A4", "A9", "B4", "B9")] + [("A1", "GND", "smd")]
+    r = parity.run({"footprints": [_fp("J3", "C:USB", pads, value="USB_C")]}, nl, "t")[0]
+    assert r.status == PASS, r.violations
+    # the same name change with one pin moved to another net is a real difference
+    pads[0] = ("A4", "GND", "smd")
+    r = parity.run({"footprints": [_fp("J3", "C:USB", pads, value="USB_C")]}, nl, "t")[0]
+    assert r.status == FAIL and len(r.violations) == 4
+
+
+def test_model_and_padnet_skip_bodyless_and_mounting_footprints():
+    from kicadverify.checks import board
+    fps = [_fp("LOGO2", "LibreSolar:LIBRESOLAR_LOGO", [], ["through_hole"]),
+           _fp("U1", "bitaxe:polarity", [], ["smd"]),
+           _fp("J2", "bitaxe:Tag-Connect_TC2030-IDC-NL", [("1", "/EN", "connect")]),
+           _fp("H1", "MountingHole:MountingHole_3.2mm_M3_Pad", [("1", None, "thru_hole")]),
+           _fp("R1", "R:R_0603", [("1", "A", "smd"), ("2", None, "smd")])]
+    b = {"footprints": fps, "tracks": [], "vias": []}
+    res = {r.check_id: r for r in board.run(b, "t", {"root": ".", "params": {}, "pins": {}})}
+    assert [v["text"] for v in res["PCB-MODEL-001"].violations] == ["R1 (R:R_0603)"]
+    assert [v["text"] for v in res["PCB-PADNET-001"].violations] == ["R1.2"]
+
+
+KICAD9_PCB = """(kicad_pcb (version 20241229) (generator "pcbnew") (generator_version "9.0")
+ (general (thickness 1.6))
+ (layers (0 "F.Cu" signal) (4 "In1.Cu" signal) (2 "B.Cu" signal) (25 "Edge.Cuts" user))
+ (net 0 "")
+ (net 1 "GND")
+ (net 2 "+5V")
+ (footprint "MountingHole:MountingHole_3.2mm_M3" (layer "F.Cu") (at 10 10) (property "Reference" "H1")
+  (pad "" np_thru_hole circle (at 0 0) (size 3.2 3.2) (drill 3.2) (layers "*.Cu" "*.Mask")))
+ (footprint "R:R_0603" (layer "F.Cu") (at 30 10) (property "Reference" "R1")
+  (pad "1" smd rect (at 0 0) (size 0.8 0.8) (layers "F.Cu") (net 2 "+5V")))
+ (segment (start 30 10) (end 40 10) (width 0.15) (layer "F.Cu") (net 2))
+ (segment (start 8 12) (end 14 12) (width 0.3) (layer "In1.Cu") (net 1))
+ (segment (start 8 11.5) (end 14 11.5) (width 0.3) (layer "B.Cu") (net 2))
+ (via (at 10 13) (size 0.6) (drill 0.3) (layers "F.Cu" "B.Cu") (net 1)))"""
+
+
+def test_kicad9_track_nets_resolve_through_the_net_table(tmp_path):
+    from kicadverify.checks import board
+    f = tmp_path / "k9.kicad_pcb"
+    f.write_text(KICAD9_PCB, encoding="utf-8")
+    b = board.load(f)
+    assert [t["net"] for t in b["tracks"]] == ["+5V", "GND", "+5V"] and b["vias"][0]["net"] == "GND"
+    res = {r.check_id: r for r in board.run(b, "t", {"root": tmp_path, "params": {"min_power_width_mm": 0.25},
+                                                       "pins": {}})}
+    # before: tracks were on nets "2" and "1", so no power net was found and the width check passed
+    assert [v["text"] for v in res["PCB-WIDTH-001"].violations] == ["+5V: 0.15 mm (thin tracks reach R1.1)"]
+    # the In1.Cu track under the screw head is not in the keep-out; the B.Cu track and the via are
+    assert sorted(v["text"] for v in res["PCB-KEEPOUT-001"].violations) == [
+        "H1: track +5V (B.Cu) inside the Ø6.0 mm keep-out", "H1: via GND inside the Ø6.0 mm keep-out"]
+
+
+def test_padnet_leaves_pads_without_a_symbol_pin_to_pinmap():
+    from kicadverify.checks import board
+    # SCD41: the symbol has the used pins only; DNC pads 1-5 have no pin and no net
+    fp = _fp("U5", "Sensor:SCD4x", [(str(n), None, "smd") for n in range(1, 6)] + [("6", "GND", "smd"),
+                                                                                    ("7", None, "smd")])
+    nl = {"components": {"U5": {"pins": {"6": {}, "7": {}}}}, "pin_net": {}}
+    b = {"footprints": [fp], "tracks": [], "vias": []}
+    res = {r.check_id: r for r in board.run(b, "t", {"root": ".", "params": {}, "pins": {}}, nl=nl)}
+    assert [v["text"] for v in res["PCB-PADNET-001"].violations] == ["U5.7"]  # a pin of the symbol, no net
+    res = {r.check_id: r for r in board.run(b, "t", {"root": ".", "params": {}, "pins": {}})}
+    assert len(res["PCB-PADNET-001"].violations) == 6  # without the schematic every open pad is reported
+
+
+def test_evidence_paths_are_relative_also_beside_the_project(tmp_path):
+    from kicadverify import evidence
+    (tmp_path / "hardware" / "kicad").mkdir(parents=True)
+    (tmp_path / "hardware" / "fab").mkdir()
+    f = tmp_path / "hardware" / "fab" / "x.zip"
+    f.write_bytes(b"x")
+    root = tmp_path / "hardware" / "kicad"
+    assert evidence.rel(f, root) == "../fab/x.zip"  # the same key on every checkout
+    assert evidence.rel(root / "a.kicad_pcb", root) == "a.kicad_pcb"
+
+
+def test_profile_from_fab_kicad_rules(tmp_path, capsys):
+    from kicadverify import cli, fabimport
+    # a KiCad 5 fab template (as the OSH Park 4-layer one): renamed copper layers, setup minima and the
+    # fab minimum in a net class
+    pcb = tmp_path / "Fab-4Layer.kicad_pcb"
+    pcb.write_text("""(kicad_pcb (version 20171130)
+ (layers (0 Front signal) (1 In1.Cu signal) (2 In2.Cu signal) (31 Back signal) (44 Edge.Cuts user))
+ (setup (trace_min 0.127) (via_min_size 0.4572) (via_min_drill 0.254) (edge_clearance 0))
+ (net_class Default "default" (clearance 0.2) (trace_width 0.25))
+ (net_class Min "fab minimum" (clearance 0.127) (trace_width 0.127)))""")
+    prof, notes = fabimport.profile_from(pcb, "fab-4")
+    assert {k: v for k, v in prof.items() if k != "source"} == {
+        "name": "fab-4", "layers_max": 4, "min_spacing_mm": 0.127, "min_track_mm": 0.127,
+        "min_via_annular_mm": 0.1016, "min_via_diameter_mm": 0.4572, "min_via_drill_mm": 0.254}
+    assert notes["min_via_annular_mm"].startswith("derived") and prof["source"]["confirmed"] is False
+    # custom rules: only those without a condition are fab-wide minima; mil converted
+    dru = tmp_path / "fab.kicad_dru"
+    dru.write_text("""(version 1)
+(rule "Fab min track" (constraint track_width (min 5mil)))
+(rule "Fab holes" (constraint hole_size (min 0.3mm)) (constraint hole_to_hole (min 0.5mm)))
+(rule "Power only" (condition "A.NetClass == 'PWR'") (constraint track_width (min 1mm)))""")
+    prof, _ = fabimport.profile_from(dru)
+    assert prof["min_track_mm"] == 0.127 and prof["min_via_drill_mm"] == 0.3 == prof["min_pth_drill_mm"]
+    assert prof["min_hole_to_hole_mm"] == 0.5
+    # a KiCad 6+ project: zeros mean "not set"
+    pro = tmp_path / "fab.kicad_pro"
+    pro.write_text('{"board": {"design_settings": {"rules": {"min_clearance": 0.1, "min_track_width": 0.09,'
+                   ' "min_copper_edge_clearance": 0.0, "min_through_hole_diameter": 0.2}}}}')
+    prof, _ = fabimport.profile_from(pro)
+    assert "min_copper_to_edge_mm" not in prof and prof["min_spacing_mm"] == 0.1
+    # a KiCad 6+ board keeps its rules in the .kicad_pro beside it
+    new_pcb = tmp_path / "fab.kicad_pcb"
+    new_pcb.write_text('(kicad_pcb (version 20240108) (generator "pcbnew"))')
+    assert fabimport.profile_from(new_pcb)[0]["min_spacing_mm"] == 0.1
+    lone = tmp_path / "lone" / "x.kicad_pcb"
+    lone.parent.mkdir()
+    lone.write_text('(kicad_pcb (version 20240108))')
+    assert cli.main(["profiles", "--from", str(lone)]) == 2
+    capsys.readouterr()
+    assert cli.main(["profiles", "--from", str(pcb), "--name", "fab-4"]) == 0
+    out = capsys.readouterr().out
+    assert "name: fab-4" in out and "not in the file" in out and "min_copper_to_edge_mm" in out
+
+
+def test_dfm_tolerance_of_a_tenth_of_a_mil():
+    from kicadverify.checks import dfm
+    prof = {"name": "t", "source": {"ref": "t"}, "min_via_annular_mm": 0.1016}  # 4 mil
+    b = {"copper_layers": ["F.Cu", "B.Cu"], "thickness": 1.6, "outline_bbox": None, "tracks": [],
+         "footprints": [], "edge_segments": [],
+         "vias": [{"net": "A", "pos": (0, 0), "drill": 0.3, "size": 0.5},     # 0.1 mm ring: 1.6 µm short
+                  {"net": "A", "pos": (5, 0), "drill": 0.3, "size": 0.49}]}   # 0.095 mm: really short
+    r = dfm.geometry(b, "t", prof)[0]
+    assert [v["text"].split(":")[1].strip() for v in r.violations] == ["annular ring 0.095 mm < 0.1016 mm"]
+
+
+def _link_nl(conn, pins, extra):
+    """Netlist of a board: connector `conn` with {pin: net}, plus (ref, pin, net, type) pins of other parts."""
+    def comp(value, pins_):
+        return {"ref": "", "value": value, "footprint": "", "lib": "", "part": value, "description": "",
+                "datasheet": "", "fields": {}, "dnp": False, "pins": pins_}
+    comps = {conn: comp("Conn", {p: {"name": p, "type": "passive"} for p in pins})}
+    nets = {}
+    for p, n in pins.items():
+        if n:
+            nets.setdefault(n, []).append({"ref": conn, "pin": p, "type": "passive"})
+    for ref, p, n, ty in extra:
+        comps.setdefault(ref, comp("IC", {}))["pins"][p] = {"name": p, "type": ty}
+        nets.setdefault(n, []).append({"ref": ref, "pin": p, "type": ty})
+    pin_net = {(x["ref"], x["pin"]): n for n, xs in nets.items() for x in xs}
+    return {"components": comps, "nets": nets, "pin_net": pin_net}
+
+
+def test_board_to_board_link(tmp_path, monkeypatch):
+    from kicadverify.checks import interconnect
+    (tmp_path / "sensor").mkdir()
+    for ext in (".kicad_pro", ".kicad_sch"):
+        (tmp_path / "sensor" / ("sensor" + ext)).write_text("{}")
+    main = _link_nl("J3", {"1": "+5V", "2": "GND", "3": "/SDA", "4": "/TX", "5": "/INT", "6": None},
+                    [("U1", "1", "+5V", "power_in"), ("U1", "2", "GND", "power_in"),
+                     ("U1", "3", "/SDA", "bidirectional"), ("U1", "4", "/TX", "output"), ("U1", "5", "/INT", "input")])
+    mate = _link_nl("P1", {"1": "+3V3", "2": "GND", "3": "/I2C_SCL", "4": "/TX", "5": None, "6": None},
+                    [("U9", "1", "+3V3", "power_in"), ("U9", "2", "GND", "power_in"),
+                     ("U9", "3", "/I2C_SCL", "bidirectional"), ("U9", "4", "/TX", "output")])
+    monkeypatch.setattr(interconnect.netlist, "load", lambda sch, cache=None: mate)
+    link = {"name": "sensor", "connector": "J3", "mate": {"board": "sensor/sensor.kicad_pro", "connector": "P1"}}
+    r = interconnect.run(main, tmp_path, "t", {"interconnects": [link]}, tmp_path)[0]
+    texts = [v["text"].split(": ", 2)[-1] for v in r.violations]
+    assert r.status == FAIL and texts == [
+        "5 V against 3.3 V",                                       # +5V into the sensor's 3.3 V rail
+        "an output pin drives the net on each board",              # TX to TX: not crossed
+        "net names differ",                                        # SDA against I2C_SCL
+        "the mating pin is not connected"]                         # /INT ends on nothing
+    assert r.coverage["total"] == 6
+    # reversed connector: pin 1 meets pin 6 and so on
+    link["mapping"] = "reverse"
+    r = interconnect.run(main, tmp_path, "t", {"interconnects": [link]}, tmp_path)[0]
+    assert any("J3.1 (+5V) mates sensor:P1.6" in v["text"] for v in r.violations)
+    # different pin counts cannot be mapped straight
+    mate["components"]["P1"]["pins"].pop("6")
+    link["mapping"] = "straight"
+    r = interconnect.run(main, tmp_path, "t", {"interconnects": [link]}, tmp_path)[0]
+    assert "6 electrical pins against 5 on the mate" in r.violations[0]["text"]
+    # a missing mate is a coverage gap, not a pass
+    link["mate"]["board"] = "nope/nope.kicad_pro"
+    r = interconnect.run(main, tmp_path, "t", {"interconnects": [link]}, tmp_path)[0]
+    assert r.coverage["unchecked"] and "not an existing .kicad_pro" in r.coverage["unchecked"][0]["text"]
+    # nothing declared: no result, and the requirement is excluded with its reason
+    assert interconnect.run(main, tmp_path, "t", {}, tmp_path) == []
+
+
+def test_board_to_board_link_on_carrier_boards(tmp_path, monkeypatch):
+    """Carrier boards for modules: only connector (passive) pins on the nets, so roles come from the
+    names. A reversed header puts ground on the I2C lines (HiveHub scale module and power module)."""
+    from kicadverify.checks import interconnect
+    (tmp_path / "pm").mkdir()
+    for ext in (".kicad_pro", ".kicad_sch"):
+        (tmp_path / "pm" / ("pm" + ext)).write_text("{}")
+    scale = _link_nl("J19", {"1": "GND", "2": "GND", "3": "/3.3V", "4": "/3.3V", "5": "/D4", "6": "/D5"},
+                     [("J15", "1", "/3.3V", "passive"), ("J15", "2", "GND", "passive"), ("J15", "3", "/D4", "passive"),
+                      ("J15", "4", "/D5", "passive")])
+    power = _link_nl("J20", {"1": "/BATneg", "2": "/BATneg", "3": "/3.3V", "4": "/3.3V", "5": "/SDA", "6": "/SCL"},
+                     [("J21", "1", "/3.3V", "passive"), ("J21", "2", "/BATneg", "passive"),
+                      ("J21", "3", "/SCL", "passive"), ("J21", "4", "/SDA", "passive")])
+    monkeypatch.setattr(interconnect.netlist, "load", lambda sch, cache=None: power)
+    link = {"name": "pm", "connector": "J19", "mate": {"board": "pm/pm.kicad_pro", "connector": "J20"}}
+    r = interconnect.run(scale, tmp_path, "t", {"interconnects": [link]}, tmp_path)[0]
+    # GND against /BATneg is ground on both sides; D4/SDA only differ by name (a warning to confirm)
+    assert r.status == WARN and [v["text"].rsplit(": ", 1)[-1] for v in r.violations] == ["net names differ"] * 2
+    link["mapping"] = "reverse"
+    r = interconnect.run(scale, tmp_path, "t", {"interconnects": [link]}, tmp_path)[0]
+    assert r.status == FAIL and [v["text"].rsplit(": ", 1)[-1] for v in r.violations] == [
+        "a ground against a signal", "a ground against a signal", "a signal against a ground",
+        "a signal against a ground"]
+
+
+def test_board_to_board_link_edge_cases(tmp_path, monkeypatch):
+    from kicadverify.checks import interconnect
+    (tmp_path / "m").mkdir()
+    for ext in (".kicad_pro", ".kicad_sch"):
+        (tmp_path / "m" / ("m" + ext)).write_text("{}")
+    # this board: +3V3 fed through J3 only; a shielded connector whose pin 5 is the shield; VNEG on an
+    # op-amp V- pin
+    here = _link_nl("J3", {"1": "+3V3", "2": "GND", "3": "/VNEG", "4": "/SIG", "5": "GND"},
+                    [("U1", "1", "+3V3", "power_in"), ("U1", "2", "GND", "power_in"), ("U2", "4", "/VNEG", "power_in"),
+                     ("U1", "3", "/SIG", "input")])
+    here["components"]["J3"]["pins"]["5"]["name"] = "Shield"
+    here["components"]["U2"]["pins"]["4"]["name"] = "V-"
+    # the mate supplies the rail from an adjustable regulator (power output, net name without a voltage)
+    mate = _link_nl("P1", {"1": "/VREG", "2": "GND", "3": "-12V", "4": "/SIG"},
+                    [("U5", "5", "/VREG", "power_out"), ("U5", "2", "GND", "power_in"), ("U6", "1", "-12V", "power_in"),
+                     ("U6", "2", "/SIG", "output")])
+    monkeypatch.setattr(interconnect.netlist, "load", lambda sch, cache=None: mate)
+    link = {"name": "m", "connector": "J3", "mate": {"board": "m/m.kicad_pro", "connector": "P1"}}
+    r = interconnect.run(here, tmp_path, "t", {"interconnects": [link]}, tmp_path)[0]
+    # 4 signal pins each (the shield is not one); the rail fed by a regulator, the negative rail on
+    # V- and a driven signal into an input are all correct
+    assert r.status == PASS, [v["text"] for v in r.violations]
+    assert r.coverage["total"] == 4
+    # a mapping table naming a pin the mate does not have
+    link["mapping"] = {1: 1, 2: 2, 3: 3, 4: 21}
+    r = interconnect.run(here, tmp_path, "t", {"interconnects": [link]}, tmp_path)[0]
+    assert r.status == FAIL and "pins the connectors do not have: m:P1.21" in r.violations[0]["text"]
